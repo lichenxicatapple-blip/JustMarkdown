@@ -18,14 +18,14 @@
 
 使用 Xcode 打开 `JustMarkdown.xcodeproj`，选择 JustMarkdown scheme 构建运行。工程与共享 scheme 直接维护并提交；新增文件时核对目标归属、编译及资源阶段。
 
-修改 WebSource、设计参数、离线依赖或阅读夹具后执行：
+修改 WebSource、设计参数、品牌资源、离线依赖或阅读夹具后执行：
 
 ```sh
 python3 scripts/build_native_web.py
 python3 scripts/build_native_web.py --check
 ```
 
-提交生成的 `Resources/Web`、`Resources/Sample` 和 `ReaderDesign.swift`，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌修改见[品牌说明](design/brand/production/README.md)。
+提交生成的 `Resources/Web`、`Resources/Sample`、`ReaderDesign.swift` 和品牌资源，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌母版、配色与生成位置见[品牌说明](design/brand/README.md)。
 
 界面翻译维护在 `JustMarkdown/Localizable.xcstrings`，系统权限说明维护在 `InfoPlist.xcstrings`。原生文案使用 SwiftUI 本地化 API 或 `String(localized:)`，由 Xcode 提取。新增或修改翻译后重新生成 Web 资源；生成器检查翻译是否完整、占位符是否一致及 Web 文案是否遗漏。验证时在 scheme 的 Application Language 中分别选择 English 和简体中文，并检查未支持语言的英文回退；不翻译文档内容和文件名。
 

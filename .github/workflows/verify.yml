@@ -48,7 +48,7 @@ jobs:
           python3 scripts/build_native_web.py --check
           python3 -m compileall -q scripts
           plutil -lint JustMarkdown/Info.plist JustMarkdown/PrivacyInfo.xcprivacy JustMarkdown.xcodeproj/project.pbxproj
-          xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests
+          xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests scripts
       - name: Check Python tooling
         run: |
           python3 -m venv "$RUNNER_TEMP/python-tools"

@@ -16,6 +16,7 @@
 | [Design tokens](design/tokens.json) | Shared values and motion parameters |
 | [Components](design/components.json) | Shared component ownership and invariants |
 | [Icons](design/icons.json) | Icon mapping |
+| [Brand resources](design/brand/README.md) | One SVG master and palette for all generated logo and App icon assets |
 | `JustMarkdown/Localizable.xcstrings` / `InfoPlist.xcstrings` | Shared native/Web UI translations and system permission copy |
 
 Maintain requirements in these sources rather than duplicating the product specification here. Expanded and collapsed outline states share one toggle and row component. Motion must support Reduce Motion and rapid reversal.

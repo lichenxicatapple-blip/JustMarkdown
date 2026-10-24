@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -185,6 +186,17 @@ def main():
         help="Check generated files without changing them",
     )
     args = parser.parse_args()
+    subprocess.run(
+        [
+            "xcrun",
+            "--sdk",
+            "macosx",
+            "swift",
+            str(ROOT / "scripts/build_brand_assets.swift"),
+            *(["--check"] if args.check else []),
+        ],
+        check=True,
+    )
     with tempfile.TemporaryDirectory(prefix="justmarkdown-web-") as temporary:
         generated = Path(temporary)
         generate(generated)

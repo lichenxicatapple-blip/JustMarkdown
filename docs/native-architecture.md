@@ -31,6 +31,7 @@ Swift 持有文件、凭据、网络与物理键盘能力，Web 负责显示和�
 | --- | --- |
 | `JustMarkdown/WebSource/` 与固定 `vendor/` 资源 | `JustMarkdown/Resources/Web/` |
 | `design/tokens.json` | Web 样式与动效参数、`JustMarkdown/ReaderDesign.swift` |
+| `design/brand/mark.svg` 与 `brand.json` | `design/brand/production/`、首页矢量和配色资源，见[品牌说明](../design/brand/README.md) |
 | `JustMarkdownTests/Fixtures/ReadingGuide/` | `JustMarkdown/Resources/Sample/`，仅 Debug 打包 |
 
 `build_native_web.py` 校验依赖摘要后完整生成资源，`--check` 只读比较。生成文件不反向充当源码。版本、许可证和文件摘要由 [vendor/assets.json](../vendor/assets.json) 管理。

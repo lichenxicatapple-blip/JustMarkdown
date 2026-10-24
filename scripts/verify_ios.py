@@ -49,6 +49,7 @@ def main():
             "JustMarkdown",
             "JustMarkdownTests",
             "JustMarkdownUITests",
+            "scripts",
         ]
     )
     runtimes = [
