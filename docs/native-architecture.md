@@ -1,6 +1,6 @@
 # 架构与维护约束
 
-JustMarkdown 使用 SwiftUI／UIKit 原生容器与 WKWebView 离线渲染，部署基线为 iOS / iPadOS 26、Swift 6。本文面向修改代码的贡献者；使用方式见 [README](../README.md)，构建与测试见[贡献指南](../CONTRIBUTING.md)。
+JustMarkdown 使用 SwiftUI／UIKit 原生容器与 WKWebView 离线渲染，部署基线为 iOS / iPadOS 26、Swift 6。本文面向修改代码的贡献者；应用介绍见 [README](../README.md)，构建与测试见[贡献指南](../CONTRIBUTING.md)。
 
 ## 模块分工
 
@@ -15,8 +15,11 @@ JustMarkdown 使用 SwiftUI／UIKit 原生容器与 WKWebView 离线渲染，部
 | `AgentDocumentTools` / `ModelTools` | 工具声明与回放、当前文件版本验证、原子编辑与保存 |
 | `NativeComposerHost` / `ConversationInput` | UIKit 输入、物理按键、输入法组合与草稿同步 |
 | `WebSource/` | 正文与 Agent 共用的解析、排版、选段转换、导航、动效及源码历史 |
+| `Localizable.xcstrings` / `InfoPlist.xcstrings` | 界面与系统权限文案的中英文翻译 |
 
 Swift 持有文件、凭据、网络与物理键盘能力，Web 负责显示和交互适配。API Key 不进入 WebKit。渲染与数据边界见[隐私政策](privacy.md)。
+
+界面跟随系统为 App 选择的语言，支持英文与简体中文，以英文回退。原生使用 String Catalog；构建脚本从同一目录生成 Web 翻译，WebKit 在页面加载前接收 App 的语言选择。只翻译应用自己的文案，保留文档、文件名、引用及模型回复的原始内容。
 
 [PrivacyInfo.xcprivacy](../JustMarkdown/PrivacyInfo.xcprivacy) 声明不跟踪，并以 `CA92.1` 将 UserDefaults 用于本 App 的设置与最近文档记录。平台隐私清单、面向用户的[隐私政策](privacy.md)及 App Store Connect 的隐私信息各有用途；修改数据流时需分别核对。
 

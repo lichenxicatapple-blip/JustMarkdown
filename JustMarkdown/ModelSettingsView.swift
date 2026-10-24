@@ -26,7 +26,7 @@ struct ModelSettingsView: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("接口类型", selection: $apiProtocol) {
+                    Picker("API Type", selection: $apiProtocol) {
                         ForEach(ModelAPIProtocol.allCases, id: \.self) { api in
                             Text(api.title).tag(api)
                         }
@@ -54,29 +54,34 @@ struct ModelSettingsView: View {
                             catalog: session.modelCatalog, baseURL: baseURL, key: key, model: $model,
                             custom: $customModel)
                     } label: {
-                        LabeledContent("模型") {
-                            Text(customModel ? "自定义" : model.isEmpty ? "选择" : model)
-                                .lineLimit(1).truncationMode(.middle)
+                        LabeledContent("Model") {
+                            Text(
+                                customModel
+                                    ? String(localized: "Custom") : model.isEmpty ? String(localized: "Select") : model
+                            )
+                            .lineLimit(1).truncationMode(.middle)
                         }
                     }
                     .accessibilityIdentifier("ModelPicker")
-                    .accessibilityLabel("模型")
+                    .accessibilityLabel("Model")
                     .accessibilityValue(model)
                     if customModel {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("模型 ID").font(.subheadline).foregroundStyle(.secondary)
+                            Text("Model ID").font(.subheadline).foregroundStyle(.secondary)
                             TextField("", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
                                 .textContentType(UITextContentType(rawValue: ""))
                                 .focused($customModelFocused)
-                                .accessibilityLabel("模型 ID").accessibilityIdentifier("ModelID")
+                                .accessibilityLabel("Model ID").accessibilityIdentifier("ModelID")
                         }
                     }
                 } footer: {
-                    Text("API Key 保存在本机钥匙串。提问时向所配服务发送当前文档与对话。")
+                    Text(
+                        "Your API key is stored in this device’s Keychain. Asking a question sends the current document and conversation to your configured service."
+                    )
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }
-            .navigationTitle("模型设置").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Model Settings").navigationBarTitleDisplayMode(.inline)
             .background {
                 SettingsAppearanceObserver {
                     if customModel { customModelFocused = true }
@@ -85,10 +90,10 @@ struct ModelSettingsView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }.keyboardShortcut(.cancelAction)
+                    Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") {
+                    Button("Done") {
                         do {
                             try session.saveConfiguration(
                                 ModelConfiguration(

@@ -21,6 +21,7 @@
     else node.textContent = label;
     return node;
   }
+  const { t, formatSeconds } = window.JustMarkdownLocalization;
   const refreshIcons = () => window.lucide?.createIcons({ attrs: { width: 18, height: 18 } });
   function create(dependencies) {
     const { app, panel, renderMarkdown, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
@@ -31,8 +32,8 @@
     const input = composer.querySelector('textarea');
     const reference = composer.querySelector('.mdv-composer-reference');
     const sendButton = composer.querySelector('.mdv-agent-send');
-    const useDocument = button('引用当前文档', 'use-document', 'file-text');
-    useDocument.append(createNode('span', '', '引用文档'));
+    const useDocument = button(t("Reference current document"), 'use-document', 'file-text');
+    useDocument.append(createNode('span', '', t("Reference document")));
     useDocument.classList.add('mdv-use-document');
     useDocument.hidden = true;
     sendButton.before(useDocument);
@@ -100,13 +101,13 @@
     }
     function referenceLabel(value) {
       return value.scope === 'document'
-        ? value.location?.replace(/^当前文档 · /, '') || '当前文档'
+        ? value.documentName || t('Current document')
         : value.text.trim();
     }
     function appendReference(parent, value) {
       const details = createNode('details', 'mdv-message-reference');
       const summary = createNode('summary', 'cursor-interaction');
-      summary.setAttribute('aria-label', '展开引用内容');
+      summary.setAttribute('aria-label', t("Expand reference"));
       summary.setAttribute('aria-expanded', 'false');
       summary.append(icon('chevron-right'), createNode('span', '', referenceLabel(value)));
       const body = createNode('div', 'mdv-rich-text');
@@ -120,7 +121,7 @@
         const shown = summary.getAttribute('aria-expanded') !== 'true';
         details.open = true;
         summary.setAttribute('aria-expanded', String(shown));
-        summary.setAttribute('aria-label', shown ? '收起引用内容' : '展开引用内容');
+        summary.setAttribute('aria-label', shown ? t("Collapse reference") : t("Expand reference"));
         if (shown) {
           if (!body.childNodes.length) body.append(renderMarkdown(value.markdown, prefix));
           enhance(body);
@@ -140,7 +141,7 @@
       const row = createNode('div', 'mdv-reference-row');
       const isDocument = value.scope === 'document';
       row.dataset.scope = isDocument ? 'document' : 'selection';
-      const remove = button('移除本次引用', 'remove-reference', 'x');
+      const remove = button(t("Remove reference"), 'remove-reference', 'x');
       remove.classList.add('mdv-reference-remove');
       const body = createNode('div', 'mdv-reference-body');
       body.addEventListener('scroll', () => {
@@ -154,7 +155,7 @@
       const prefix = 'composer-reference-' + (++messageSequence);
       body.append(content);
       if (isDocument) {
-        const toggle = button('展开引用内容', 'toggle-reference', 'file-text');
+        const toggle = button(t("Expand reference"), 'toggle-reference', 'file-text');
         toggle.classList.add('mdv-reference-toggle');
         toggle.setAttribute('aria-expanded', 'false');
         toggle.append(createNode('span', 'mdv-reference-label', referenceLabel(value)), icon('chevron-down'));
@@ -164,7 +165,7 @@
           event.stopPropagation();
           const shown = toggle.getAttribute('aria-expanded') !== 'true';
           toggle.setAttribute('aria-expanded', String(shown));
-          toggle.setAttribute('aria-label', shown ? '收起引用内容' : '展开引用内容');
+          toggle.setAttribute('aria-label', shown ? t("Collapse reference") : t("Expand reference"));
           if (shown) {
             if (!content.childNodes.length) content.append(renderMarkdown(value.markdown, prefix));
             enhance(content);
@@ -173,7 +174,7 @@
         });
       } else {
         body.setAttribute('role', 'region');
-        body.setAttribute('aria-label', '引用内容');
+        body.setAttribute('aria-label', t("Referenced content"));
         body.tabIndex = 0;
         content.append(renderMarkdown(value.markdown, prefix));
         const marker = createNode('span', 'mdv-reference-icon');
@@ -196,7 +197,7 @@
     function updateSendState() {
       const generating = !!activeStream;
       sendButton.disabled = !generating && !input.value.trim();
-      sendButton.setAttribute('aria-label', generating ? '停止生成' : '发送问题');
+      sendButton.setAttribute('aria-label', generating ? t("Stop generating") : t("Send message"));
       sendButton.type = generating ? 'button' : 'submit';
       const desired = generating ? 'square' : 'arrow-up';
       if (sendButton.dataset.icon !== desired) {
@@ -307,7 +308,7 @@
       const turn = createNode('article', 'mdv-turn mdv-' + role + '-turn');
       turn.dataset.component = 'ConversationTurn';
       turn.dataset.role = role;
-      turn.setAttribute('aria-label', role === 'user' ? '用户提问' : 'AI 回答');
+      turn.setAttribute('aria-label', role === 'user' ? t("Your message") : t("AI response"));
       message.element = turn;
       if (value) appendReference(turn, value);
       const surface = rich(markdown, 'message-' + message.id);
@@ -329,24 +330,24 @@
       record.message.element.removeAttribute('aria-busy');
       if (!stopped) record.message.markdown = record.request.markdown;
       if (stopped) record.cancel?.();
-      if (stopped) record.message.element.append(createNode('p', 'mdv-turn-status', '已停止生成'));
+      if (stopped) record.message.element.append(createNode('p', 'mdv-turn-status', t("Generation stopped")));
       activeStream = null;
       updateSendState();
-      announce(stopped ? '已停止生成，已收到的内容保留。' : '回答已完成，可以继续追问。');
+      announce(stopped ? t("Generation stopped. The received content has been kept.") : t("Response complete. You can ask a follow-up question."));
       keepAtBottom();
     }
     const failureMessages = {
-      network: '无法连接到服务',
-      timeout: '请求超时',
-      authentication: '认证失败，请检查 API Key',
-      configuration: '请检查服务地址、接口类型和模型',
-      rateLimit: '请求过于频繁',
-      service: '服务暂时不可用',
-      response: '回答格式无法读取',
-      incomplete: '回答未完成',
-      contextLimit: '内容超出模型上下文上限',
-      requestTooLarge: '请求内容过大',
-      stale: '原文已变化，未执行修改'
+      network: t("Unable to connect to the service"),
+      timeout: t("Request timed out"),
+      authentication: t("Authentication failed. Check your API key"),
+      configuration: t("Check the service URL, API type, and model"),
+      rateLimit: t("Too many requests"),
+      service: t("Service temporarily unavailable"),
+      response: t("Unable to read the response"),
+      incomplete: t("Response incomplete"),
+      contextLimit: t("Content exceeds the model’s context limit"),
+      requestTooLarge: t("Request too large"),
+      stale: t("The document has changed. No edits were made")
     };
     function clearRetry(request) {
       clearInterval(request?.cooldownTimer);
@@ -362,12 +363,12 @@
       message.element.dataset.state = 'failed';
       message.element.removeAttribute('aria-busy');
       const partial = message.surface.hasChildNodes();
-      const reason = partial ? '回答已中断' : failureMessages[failure.kind] || '请求失败';
+      const reason = partial ? t("Response interrupted") : failureMessages[failure.kind] || t("Request failed");
       const status = createNode('div', 'mdv-request-status');
       status.dataset.component = 'RequestStatus';
       status.setAttribute('role', 'group');
-      status.setAttribute('aria-label', '请求失败');
-      const retryLabel = partial ? '重新生成' : '重试';
+      status.setAttribute('aria-label', t("Request failed"));
+      const retryLabel = partial ? t("Regenerate") : t("Retry");
       const retry = button(retryLabel, 'retry');
       status.append(createNode('p', '', reason), retry);
       message.element.append(status);
@@ -377,7 +378,7 @@
       function updateRetry() {
         const remaining = Math.max(0, Math.ceil((request.retryAt - Date.now()) / 1000));
         retry.disabled = remaining > 0;
-        retry.textContent = remaining ? remaining + ' 秒后重试' : retryLabel;
+        retry.textContent = remaining ? t('Retry in {duration}', { duration: formatSeconds(remaining) }) : retryLabel;
         if (!remaining) clearInterval(request.cooldownTimer);
       }
       updateRetry();
@@ -392,7 +393,7 @@
       });
       updateSendState();
       animateContent(status, motion.content);
-      announce(reason + (retry.disabled ? '，稍后可以重试。' : '，可以' + retryLabel + '。'));
+      announce(retry.disabled ? t('{reason}. You can retry shortly.', { reason }) : t('{reason}. {action}.', { reason, action: retryLabel }));
       if (document.activeElement === message.element && !retry.disabled) retry.focus({ preventScroll: true });
       keepAtBottom();
     }
@@ -405,7 +406,7 @@
       request.message = message;
       const pending = createNode('div', 'mdv-request-status');
       pending.dataset.component = 'RequestStatus';
-      const progress = createNode('div', 'mdv-agent-pending', retrying ? '重试中…' : '生成中…');
+      const progress = createNode('div', 'mdv-agent-pending', retrying ? t("Retrying…") : t("Generating…"));
       pending.append(progress);
       message.element.append(pending);
       message.element.dataset.state = retrying ? 'retrying' : 'pending';
@@ -413,7 +414,7 @@
       const record = { request, message, pending, replaceOnFirstBlock: message.surface.hasChildNodes(), liveMarkdown: '' };
       activeStream = record;
       updateSendState();
-      announce(retrying ? '正在重试，问题与引用保持原样。' : '正在生成回答。');
+      announce(retrying ? t("Retrying with the original question and reference.") : t("Generating a response."));
       record.cancel = provider.stream(request.snapshot, request.intent, {
         text(delta) {
           if (activeStream !== record) return;
@@ -506,7 +507,7 @@
       const existing = message.changes.find(change => change.id === value.id);
       if (existing) {
         existing.saved = value.saved;
-        existing.note.textContent = value.saved === false ? '修改尚未保存。' : '';
+        existing.note.textContent = value.saved === false ? t("Changes have not been saved.") : '';
         existing.note.hidden = value.saved !== false;
         return;
       }
@@ -514,12 +515,12 @@
       message.changes.push(change);
       const card = createNode('section', 'mdv-proposal');
       card.dataset.component = 'DocumentChange';
-      card.setAttribute('aria-label', '文档修改');
+      card.setAttribute('aria-label', t("Document changes"));
       const header = createNode('div', 'mdv-proposal-header');
-      const title = createNode('span', '', '已修改');
+      const title = createNode('span', '', t("Edited"));
       header.append(title);
       const diff = createNode('pre', 'mdv-diff');
-      diff.setAttribute('aria-label', '修改差异，减号为原文，加号为新内容');
+      diff.setAttribute('aria-label', t("Changes: minus indicates removed text; plus indicates added text"));
       change.edits.forEach((edit, index) => {
         if (index) diff.append(createNode('span', 'mdv-diff-line', ''));
         diffLines(edit.before, edit.after).forEach(line => {
@@ -529,17 +530,17 @@
         });
       });
       const actions = createNode('div', 'mdv-proposal-actions');
-      const undo = button('撤销这次修改', 'undo');
-      undo.textContent = '撤销';
+      const undo = button(t("Undo this edit"), 'undo');
+      undo.textContent = t("Undo");
       actions.append(undo);
-      const note = createNode('p', 'mdv-proposal-note', value.saved === false ? '修改尚未保存。' : '');
+      const note = createNode('p', 'mdv-proposal-note', value.saved === false ? t("Changes have not been saved.") : '');
       note.hidden = value.saved !== false;
       note.setAttribute('role', 'alert');
       change.note = note;
       change.showStatus = status => {
         const changed = change.status !== status;
         change.status = status;
-        title.textContent = status === 'undone' ? '已撤销' : '已修改';
+        title.textContent = status === 'undone' ? t("Undone") : t("Edited");
         undo.hidden = status === 'undone';
         actions.hidden = status === 'undone';
         undo.disabled = false;
@@ -558,29 +559,29 @@
             // History events already applied the undo. A later redo can precede
             // this save acknowledgement, so it must remain the source of truth.
             if (change.status !== 'undone') return;
-            note.textContent = result.saved === 'false' ? '撤销后的内容尚未保存。' : '';
+            note.textContent = result.saved === 'false' ? t("The undo has not been saved.") : '';
             note.hidden = result.saved !== 'false';
             animateContent(title, motion.editFeedback);
-            announce('本次修改已撤销。');
+            announce(t("This edit has been undone."));
           } else {
-            note.textContent = result.message || '无法撤销这次修改。';
+            note.textContent = result.message || t("Unable to undo this edit.");
             note.hidden = false;
             undo.disabled = result.error === 'stale';
           }
         } catch {
-          note.textContent = '无法撤销，请重试。'; note.hidden = false; undo.disabled = false;
+          note.textContent = t("Unable to undo. Try again."); note.hidden = false; undo.disabled = false;
         }
       });
       animateContent(card, motion.proposal);
       keepAtBottom();
-      announce('文档已修改，可以撤销。');
+      announce(t("Document edited. Undo is available."));
     }
     app.addEventListener('mdv-source-history', event => {
       const { transactionID, status } = event.detail;
       const change = documentChanges.get(transactionID);
       if (change && status) {
         change.showStatus(status);
-        announce(status === 'undone' ? '本次修改已撤销。' : '本次修改已重做。');
+        announce(status === 'undone' ? t("This edit has been undone.") : t("This edit has been redone."));
       }
     });
     composer.addEventListener('submit', event => { event.preventDefault(); send(); });

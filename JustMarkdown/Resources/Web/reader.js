@@ -1,4 +1,5 @@
 (() => {
+  const { t, apply: localize } = window.JustMarkdownLocalization;
   const root = document.getElementById('mdv-reading-concept');
   const template = document.getElementById('mdv-app-template');
   const apps = Array.from(root.querySelectorAll('.mdv-app'));
@@ -79,6 +80,7 @@
   });
   apps.forEach(app => {
     app.append(template.content.cloneNode(true));
+    localize(app);
     const layout = app.dataset.layout;
     const state = { mode: 'preview', agent: false, outline: !matchMedia('(max-width: 560px)').matches };
     let selection = '';
@@ -272,7 +274,7 @@
         toggle.type = 'button';
         toggle.className = 'cursor-interaction';
         toggle.dataset.collapseHeading = branch.id;
-        toggle.setAttribute('aria-label', `折叠或展开 ${heading.textContent}`);
+        toggle.setAttribute('aria-label', t('Collapse or expand {title}', { title: heading.textContent }));
         toggle.setAttribute('aria-expanded', 'true');
         toggle.setAttribute('aria-controls', branch.id);
         const icon = document.createElement('i');
@@ -432,7 +434,7 @@
             diagram.style.height = `${diagram.viewBox.baseVal.height}px`;
           }
           diagram.setAttribute('role', 'img');
-          if (!diagram.hasAttribute('aria-label') && !diagram.hasAttribute('aria-labelledby')) diagram.setAttribute('aria-label', 'Mermaid 文档图表');
+          if (!diagram.hasAttribute('aria-label') && !diagram.hasAttribute('aria-labelledby')) diagram.setAttribute('aria-label', t("Mermaid diagram"));
         } catch (error) {
           if (revision !== enhancementRevisions.get(surface) || !element.isConnected) return;
           const pre = document.createElement('pre');
@@ -441,7 +443,7 @@
           pre.append(codeElement);
           const message = document.createElement('p');
           message.className = 'mdv-diagram-error';
-          message.textContent = 'Mermaid 图表语法无法解析，已保留原始内容。';
+          message.textContent = t("Unable to parse the Mermaid diagram. The original content has been kept.");
           element.replaceChildren(message, pre);
         }
       }
@@ -567,7 +569,7 @@
         nativeDocumentName = document.name || '';
         pendingNativeAgentEntry = null;
         clearTimeout(sourceTimer); renderedMarkdown = null; sourceHistory.reset(document.text);
-        sourceEditor.setAttribute('aria-label','Markdown 源码');
+        sourceEditor.setAttribute('aria-label',t('Markdown source'));
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
         readingLayout.style.removeProperty('opacity'); delete app.dataset.modeTransition;
         state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;
@@ -787,7 +789,7 @@
         const markdown = sourceEditor.value;
         return {
           text: markdown, markdown, mode: displayedMode, scope: 'document',
-          location: '当前文档 · ' + nativeDocumentName, documentName: nativeDocumentName
+          location: t('Current document · {name}', { name: nativeDocumentName }), documentName: nativeDocumentName
         };
       }
     });
@@ -1113,7 +1115,7 @@
         selection = sourceEditor.value.slice(start, end);
         const first = sourceEditor.value.slice(0, start).split('\n').length;
         const last = sourceEditor.value.slice(0, end).split('\n').length;
-        const location = first === last ? '源码 · 第 ' + first + ' 行' : '源码 · 第 ' + first + '–' + last + ' 行';
+        const location = first === last ? t('Source · Line {line}', { line: first }) : t('Source · Lines {first}–{last}', { first, last });
         const rect = sourceSelectionRect();
         let markdown = selection;
         const offsets = [0];
@@ -1133,7 +1135,7 @@
         selection = text;
         const range = selected.getRangeAt(0);
         const block = (selected.anchorNode.nodeType === Node.ELEMENT_NODE ? selected.anchorNode : selected.anchorNode.parentElement)?.closest('[data-source-start]');
-        const location = block ? '原文 · 第 ' + (Number(block.dataset.sourceStart) + 1) + ' 行' : '所选内容';
+        const location = block ? t('Text · Line {line}', { line: Number(block.dataset.sourceStart) + 1 }) : t('Selected text');
         const rect = previewSelectionEndRect(range);
         selectionAttachment = { text, markdown: selectionMarkdown(range), mode: 'preview', location, rect };
         return rect;

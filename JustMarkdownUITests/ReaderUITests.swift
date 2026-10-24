@@ -14,6 +14,89 @@ final class ReaderUITests: XCTestCase {
         add(attachment)
     }
 
+    func testEnglishInterfaceAcrossReaderSettingsAndRecents() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        let outline = app.buttons["OutlineToggle"]
+        if outline.label == "Show contents" { outline.tap() }
+        XCTAssertTrue(app.webViews.staticTexts["Contents"].waitForExistence(timeout: 8))
+        XCTAssertEqual(outline.label, "Hide contents")
+        record("english-reader-preview")
+        outline.tap()
+
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        XCTAssertTrue(app.alerts["Model Not Configured"].waitForExistence(timeout: 5))
+        app.alerts.buttons["Open Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Model Settings"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["API Type"].exists)
+        app.buttons["ModelPicker"].tap()
+        XCTAssertTrue(app.buttons["CustomModelEntry"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons["CustomModelEntry"].label, "Custom…")
+        app.buttons["CustomModelEntry"].tap()
+        XCTAssertTrue(app.textFields["ModelID"].waitForExistence(timeout: 5))
+        record("english-model-settings")
+        app.buttons["Cancel"].tap()
+
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.webViews.textViews["Markdown source"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        XCTAssertTrue((editor.value as? String ?? "").hasPrefix("# Markdown 长文阅读与技术笔记"))
+        showTools(app)
+        XCTAssertEqual(app.buttons["SourceUndo"].label, "Undo")
+        XCTAssertEqual(app.buttons["SourceRedo"].label, "Redo")
+        app.buttons["CloseDocument"].tap()
+        let open = app.buttons["OpenDocument"]
+        XCTAssertTrue(open.waitForExistence(timeout: 8))
+        XCTAssertEqual(open.label, "Open Document")
+        XCTAssertEqual(app.buttons["RecentDocuments"].label, "Recent Documents...")
+        app.buttons["RecentDocuments"].tap()
+        XCTAssertTrue(app.navigationBars["Recent Documents"].waitForExistence(timeout: 5))
+        let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "RecentDocument-")).firstMatch
+        XCTAssertEqual(row.label, "reading-guide.md")
+    }
+
+    func testEnglishAgentUsesLocalizedControls() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "--ui-test-agent-fixture",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let input = app.textViews["QuestionInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+        XCTAssertEqual(input.label, "AI message")
+        XCTAssertTrue(app.webViews.buttons["Collapse conversation"].exists)
+        XCTAssertTrue(app.webViews.buttons["Remove reference"].exists)
+        XCTAssertTrue(app.webViews.buttons["Send message"].exists)
+        XCTAssertTrue(app.webViews.buttons["Expand reference"].exists)
+        record("english-agent")
+    }
+
+    func testUnsupportedSystemLanguageFallsBackToEnglish() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "-AppleLanguages", "(fr)", "-AppleLocale", "fr_FR"]
+        app.launch()
+        let open = app.buttons["OpenDocument"]
+        XCTAssertTrue(open.waitForExistence(timeout: 8))
+        XCTAssertEqual(open.label, "Open Document")
+        app.buttons["RecentDocuments"].tap()
+        let empty = app.staticTexts["RecentDocumentsEmpty"]
+        XCTAssertTrue(empty.waitForExistence(timeout: 5))
+        XCTAssertEqual(empty.label, "No recent documents")
+    }
+
     func testReaderNavigationEditingSettingsAndRotation() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -593,7 +676,7 @@ final class ReaderUITests: XCTestCase {
                 toggle.waitForExistence(timeout: 5) || mode.waitForExistence(timeout: 5),
                 "Reading controls become available after the foreground closing transition")
         }
-        if toggle.exists && toggle.label == "展开阅读工具" { toggle.tap() }
+        if toggle.exists && !mode.exists { toggle.tap() }
     }
 
     private func openQuestionInput(_ app: XCUIApplication) -> XCUIElement {

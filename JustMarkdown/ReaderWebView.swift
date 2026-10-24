@@ -15,9 +15,11 @@ final class ReaderWKWebView: WKWebView {
 
     override var keyCommands: [UIKeyCommand]? {
         guard sourceEditing, !conversationFocused else { return super.keyCommands }
-        let undo = UIKeyCommand(title: "撤销", action: #selector(undoSource), input: "z", modifierFlags: .command)
+        let undo = UIKeyCommand(
+            title: String(localized: "Undo"), action: #selector(undoSource), input: "z", modifierFlags: .command)
         let redo = UIKeyCommand(
-            title: "重做", action: #selector(redoSource), input: "z", modifierFlags: [.command, .shift])
+            title: String(localized: "Redo"), action: #selector(redoSource), input: "z",
+            modifierFlags: [.command, .shift])
         undo.wantsPriorityOverSystemBehavior = true
         redo.wantsPriorityOverSystemBehavior = true
         return [undo, redo]
@@ -41,11 +43,11 @@ final class ReaderWKWebView: WKWebView {
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: [ask]), atEndOfMenu: .standardEdit)
         if sourceEditing {
             let undo = UIAction(
-                title: "撤销", image: UIImage(systemName: "arrow.uturn.backward"),
+                title: String(localized: "Undo"), image: UIImage(systemName: "arrow.uturn.backward"),
                 attributes: canUndoSource ? [] : .disabled
             ) { [weak self] _ in self?.undoSource() }
             let redo = UIAction(
-                title: "重做", image: UIImage(systemName: "arrow.uturn.forward"),
+                title: String(localized: "Redo"), image: UIImage(systemName: "arrow.uturn.forward"),
                 attributes: canRedoSource ? [] : .disabled
             ) { [weak self] _ in self?.redoSource() }
             builder.insertChild(
@@ -69,6 +71,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         configuration.setURLSchemeHandler(session.resources, forURLScheme: "jm-resource")
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        let languages =
+            (try? JSONSerialization.data(withJSONObject: Bundle.main.preferredLocalizations)) ?? Data("[]".utf8)
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: "window.JustMarkdownLanguages = \(String(decoding: languages, as: UTF8.self));",
+                injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = ReaderWKWebView(frame: .zero, configuration: configuration)
         super.init()
         composer = NativeComposerHost(webView: webView)
@@ -93,7 +101,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.sourceHistoryAction = { [weak session] action in session?.performSourceHistory(action) }
         session.bridge = self
         guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") else {
-            session.errorMessage = "缺少离线渲染资源。"
+            session.errorMessage = String(localized: "Offline rendering resources are missing.")
             return
         }
         webView.loadFileURL(index, allowingReadAccessTo: index.deletingLastPathComponent())
@@ -122,7 +130,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                         "payload": ["text": document.text, "token": token, "name": document.fileURL.lastPathComponent]
                     ])
             } catch {
-                session.errorMessage = "文档渲染失败：\(error.localizedDescription)"
+                session.errorMessage = String(
+                    localized: "Unable to render this document: \(error.localizedDescription)")
             }
         }
     }
@@ -270,7 +279,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     func webView(
         _ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error
     ) {
-        session.errorMessage = "阅读页面加载失败：\(error.localizedDescription)"
+        session.errorMessage = String(localized: "Unable to load the reader: \(error.localizedDescription)")
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

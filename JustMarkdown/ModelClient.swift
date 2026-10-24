@@ -45,7 +45,9 @@ struct ModelClient: Sendable {
             let error =
                 root?["error"] as? [String: Any]
                 ?? root.map { ["code": $0["code"] ?? "", "message": $0["msg"] ?? ""] }
-            let message = (error?["message"] as? String ?? "请检查服务地址、认证信息、接口类型和模型。")
+            let message =
+                (error?["message"] as? String
+                ?? String(localized: "Check the service URL, credentials, API type, and model."))
                 .replacingOccurrences(of: key, with: "••••••")
             throw ModelWireFormat.remoteError(
                 error,

@@ -118,7 +118,7 @@ final class ReaderSession: ObservableObject {
 
     func open(_ url: URL) async {
         do { _ = try await openDocument { RecentDocumentLocation(file: url, folders: []) } } catch {
-            errorMessage = "无法打开这份文档：\(error.localizedDescription)"
+            errorMessage = String(localized: "Unable to open this document: \(error.localizedDescription)")
         }
     }
 
@@ -146,7 +146,9 @@ final class ReaderSession: ObservableObject {
         let url = location.file
         guard url.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
         guard MarkdownDocument.supportedFilenameExtensions.contains(url.pathExtension.lowercased()) else {
-            throw CocoaError(.fileReadUnknown, userInfo: [NSLocalizedDescriptionKey: "仅支持 Markdown 文档。"])
+            throw CocoaError(
+                .fileReadUnknown,
+                userInfo: [NSLocalizedDescriptionKey: String(localized: "Only Markdown documents are supported.")])
         }
         if document?.fileURL.standardizedFileURL == url.standardizedFileURL { return true }
         let container = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).resolvingSymlinksInPath()
@@ -172,7 +174,7 @@ final class ReaderSession: ObservableObject {
         let recent = await RecentDocumentsStore.prepare(url, folders: roots + restoredFolders, replacing: recentID)
         if let document, !(await document.closeSavingChanges()) {
             _ = await next.closeSavingChanges()
-            errorMessage = "当前文档未能保存，已保留当前编辑内容。"
+            errorMessage = String(localized: "The document could not be saved. Your changes have been kept.")
             return false
         }
         agentTransport.reset()
@@ -220,7 +222,8 @@ final class ReaderSession: ObservableObject {
         guard !isClosingDocument, failedCloseToken == nil, let document, document.hasUnsavedChanges else { return }
         let saved = await document.persist()
         if !saved, self.document === document, !isClosingDocument, failedCloseToken == nil {
-            errorMessage = "文档暂时无法保存，请保留当前页面并检查文件访问权限。"
+            errorMessage = String(
+                localized: "The document cannot be saved right now. Keep it open and check file access.")
         }
     }
 
@@ -236,7 +239,7 @@ final class ReaderSession: ObservableObject {
     func flushChanges() async {
         guard !isClosingDocument, failedCloseToken == nil else { return }
         do { try await synchronizeSource() } catch {
-            errorMessage = "无法读取当前编辑内容，请保留当前页面后重试。"
+            errorMessage = String(localized: "Your changes could not be read. Keep the document open and try again.")
             return
         }
         autosaveTask?.cancel()
@@ -328,7 +331,9 @@ final class ReaderSession: ObservableObject {
             let file = try access.resolve(href)
             guard ["md", "markdown", "mdown", "mkd"].contains(file.pathExtension.lowercased()) else { return }
             await open(file)
-        } catch { errorMessage = "无法打开链接的本地文档，请先授权它所在的文件夹。" }
+        } catch {
+            errorMessage = String(localized: "Allow access to the containing folder to open this linked document.")
+        }
     }
 
     func toggleAgent() {

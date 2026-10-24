@@ -69,7 +69,7 @@
         nativeDocumentName = document.name || '';
         pendingNativeAgentEntry = null;
         clearTimeout(sourceTimer); renderedMarkdown = null; sourceHistory.reset(document.text);
-        sourceEditor.setAttribute('aria-label','Markdown 源码');
+        sourceEditor.setAttribute('aria-label',t('Markdown source'));
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
         readingLayout.style.removeProperty('opacity'); delete app.dataset.modeTransition;
         state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;

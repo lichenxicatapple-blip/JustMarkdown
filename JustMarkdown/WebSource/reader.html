@@ -1,5 +1,5 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' jm-resource: data: https: http:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';"><title>JustMarkdown</title></head><body><div id="mdv-reading-concept" aria-label="Markdown 文档阅读">
-  <div class="mdv-app" data-layout="document" data-component="ReaderScreen" aria-label="Markdown 文档"></div>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' jm-resource: data: https: http:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';"><title>JustMarkdown</title></head><body><div id="mdv-reading-concept" aria-label="Markdown reader" data-l10n-aria-label="Markdown reader">
+  <div class="mdv-app" data-layout="document" data-component="ReaderScreen" aria-label="Markdown document" data-l10n-aria-label="Markdown document"></div>
 </div>
 <!-- design-tokens -->
 <!-- motion-spec -->
@@ -9,9 +9,9 @@
 <!-- agent-styles -->
 <template id="mdv-app-template">
   <div class="mdv-reading-layout">
-    <nav class="mdv-outline" data-component="OutlineNavigator" data-expanded="true" aria-label="文章目录">
+    <nav class="mdv-outline" data-component="OutlineNavigator" data-expanded="true" aria-label="Contents" data-l10n-aria-label="Contents">
       <div class="mdv-outline-inner">
-        <div class="mdv-outline-header"><span>文章目录</span></div>
+        <div class="mdv-outline-header"><span data-l10n="Contents">Contents</span></div>
         <div id="mdv-document-outline" class="mdv-outline-body"><ol class="mdv-outline-list"></ol></div>
       </div>
     </nav>
@@ -20,13 +20,14 @@
       <article class="mdv-article">
       </article>
       <div class="mdv-source-panel" hidden>
-        <textarea class="mdv-source-editor" aria-label="Markdown 源码" spellcheck="false" autocapitalize="none"></textarea>
+        <textarea class="mdv-source-editor" aria-label="Markdown source" data-l10n-aria-label="Markdown source" spellcheck="false" autocapitalize="none"></textarea>
       </div>
     </main>
 <!-- agent-markup -->
   </div>
   </div>
 </template>
+<script src="localization.js"></script>
 <script src="agent.js"></script>
 <script src="source-history.js"></script>
 <!-- native-styles --><script src="reader.js"></script></body></html>

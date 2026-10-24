@@ -57,16 +57,17 @@ enum ModelError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .configuration: "请在模型设置中填写有效的 Base URL 和模型 ID。"
-        case .missingKey: "请在模型设置中填写 API Key。"
-        case .invalidResponse: "模型服务没有返回可读取的回答，请检查接口与模型 ID。"
-        case .interrupted: "回答已中断。"
-        case .incomplete: "回答未完成，请重新生成。"
-        case .contextLimit: "内容超出模型上下文上限。"
-        case .requestTooLarge: "请求内容过大。"
-        case .generationFailed: "模型未能生成回答。"
-        case .rateLimited: "请求过于频繁，请稍后重试。"
-        case .service(let code, let message): "模型服务返回 HTTP \(code)。\(message)"
+        case .configuration: String(localized: "Enter a valid Base URL and Model ID in Model Settings.")
+        case .missingKey: String(localized: "Enter your API key in Model Settings.")
+        case .invalidResponse:
+            String(localized: "The model service returned an unreadable response. Check the API type and Model ID.")
+        case .interrupted: String(localized: "The response was interrupted.")
+        case .incomplete: String(localized: "The response is incomplete. Try generating it again.")
+        case .contextLimit: String(localized: "The content exceeds the model’s context limit.")
+        case .requestTooLarge: String(localized: "The request is too large.")
+        case .generationFailed: String(localized: "The model could not generate a response.")
+        case .rateLimited: String(localized: "Too many requests. Try again later.")
+        case .service(let code, let message): String(localized: "The model service returned HTTP \(code). \(message)")
         }
     }
 }

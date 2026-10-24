@@ -113,28 +113,43 @@ final class AgentDocumentTools {
     }
 
     func undo(_ id: String, token: String) async -> [String: String] {
-        guard !executing else { return ["error": "busy", "message": "文档正在保存，请稍后重试。"] }
+        guard !executing else {
+            return ["error": "busy", "message": String(localized: "The document is being saved. Try again shortly.")]
+        }
         executing = true
         defer { executing = false }
         do {
             guard let session, let record = undoRecords[id], record.token == token,
                 session.documentToken == token, !session.isClosingDocument
-            else { return ["error": "stale", "message": "这次修改已不可撤销。"] }
-            guard session.mode == "source" else { return ["error": "read_only", "message": "请切换到源码后撤销。"] }
+            else { return ["error": "stale", "message": String(localized: "This edit can no longer be undone.")] }
+            guard session.mode == "source" else {
+                return ["error": "read_only", "message": String(localized: "Switch to source view to undo this edit.")]
+            }
             let current = try await currentText(session, token: token)
-            guard current == record.after else { return ["error": "stale", "message": "原文已有其他编辑，无法撤销这次修改。"] }
+            guard current == record.after else {
+                return [
+                    "error": "stale",
+                    "message": String(localized: "The document has other changes. This edit cannot be undone."),
+                ]
+            }
             if let bridge = session.bridge {
                 guard
                     try await bridge.call("historyAction", arguments: ["payload": ["action": "undo", "id": id]])
                         as? Bool == true
                 else {
-                    return ["error": "stale", "message": "请先撤销后续编辑，再撤销这次修改。"]
+                    return [
+                        "error": "stale", "message": String(localized: "Undo later changes before undoing this edit."),
+                    ]
                 }
             }
             session.sourceChanged(record.before, token: token)
             let saved = await save(session, token: token)
             return ["status": "undone", "saved": saved ? "true" : "false"]
-        } catch { return ["error": "stale", "message": "原文已变化，无法撤销这次修改。"] }
+        } catch {
+            return [
+                "error": "stale", "message": String(localized: "The document has changed. This edit cannot be undone."),
+            ]
+        }
     }
 
     private func currentText(_ session: ReaderSession, token: String) async throws -> String {

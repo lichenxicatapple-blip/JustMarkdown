@@ -1,6 +1,6 @@
 # 参与开发
 
-本指南说明开发环境、资源维护、测试和提交方法。应用功能与使用方式见 [README](README.md)，模块与数据约束见[架构说明](docs/native-architecture.md)。
+本指南说明开发环境、资源维护、测试和提交方法。应用介绍见 [README](README.md)，模块与数据约束见[架构说明](docs/native-architecture.md)。
 
 ## 开发环境
 
@@ -26,6 +26,8 @@ python3 scripts/build_native_web.py --check
 ```
 
 提交生成的 `Resources/Web`、`Resources/Sample` 和 `ReaderDesign.swift`，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌修改见[品牌说明](design/brand/production/README.md)。
+
+界面翻译维护在 `JustMarkdown/Localizable.xcstrings`，系统权限说明维护在 `InfoPlist.xcstrings`。原生文案使用 SwiftUI 本地化 API 或 `String(localized:)`，由 Xcode 提取。新增或修改翻译后重新生成 Web 资源；生成器检查翻译是否完整、占位符是否一致及 Web 文案是否遗漏。验证时在 scheme 的 Application Language 中分别选择 English 和简体中文，并检查未支持语言的英文回退；不翻译文档内容和文件名。
 
 ## 测试
 

@@ -26,7 +26,7 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
             view.returnKeyType = .default
             view.textContainer.lineFragmentPadding = 0
             view.delegate = self
-            view.accessibilityLabel = "输入 AI 消息"
+            view.accessibilityLabel = String(localized: "AI message")
             view.accessibilityIdentifier = "QuestionInput"
             view.onSubmit = { [weak self] _ in self?.submit(id) }
             webView.addSubview(view)

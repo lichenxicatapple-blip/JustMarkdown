@@ -36,7 +36,7 @@ struct ModelSelectionView: View {
     var body: some View {
         List {
             if let current {
-                Section("当前模型") {
+                Section("Current Model") {
                     choice(current, selected: true) { dismiss() }
                 }
             }
@@ -45,7 +45,9 @@ struct ModelSelectionView: View {
                     if matches.isEmpty {
                         Text(
                             search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                ? (current == nil ? "暂无模型" : "暂无其他模型") : "无匹配模型"
+                                ? (current == nil
+                                    ? String(localized: "No models available") : String(localized: "No other models"))
+                                : String(localized: "No matching models")
                         )
                         .foregroundStyle(.secondary)
                     } else {
@@ -59,9 +61,9 @@ struct ModelSelectionView: View {
                     }
                 } else if failed {
                     HStack {
-                        Text("无法获取模型列表").foregroundStyle(.secondary)
+                        Text("Unable to Load Models").foregroundStyle(.secondary)
                         Spacer()
-                        Button("重试") {
+                        Button("Retry") {
                             failed = false
                             catalog.prefetch(baseURL: baseURL, key: key)
                         }
@@ -70,7 +72,7 @@ struct ModelSelectionView: View {
                 } else {
                     HStack {
                         Spacer()
-                        ProgressView().accessibilityLabel("正在加载模型")
+                        ProgressView().accessibilityLabel("Loading models")
                         Spacer()
                     }
                     .accessibilityIdentifier("ModelListLoading")
@@ -78,12 +80,12 @@ struct ModelSelectionView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("模型").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索模型")
+        .navigationTitle("Model").navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search models")
         .searchPresentationToolbarBehavior(.avoidHidingContent)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("自定义…") {
+                Button("Custom…") {
                     custom = true
                     dismiss()
                 }

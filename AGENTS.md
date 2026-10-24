@@ -10,12 +10,13 @@
 
 | Source | Responsibility |
 | --- | --- |
-| [README](README.md) | Features, supported formats and user configuration |
+| [README](README.md) | Concise product introduction, language links and one reading screenshot |
 | [Native architecture](docs/native-architecture.md) | Module ownership, interaction constraints, file access, context versions, tools and transport |
 | [Privacy](docs/privacy.md) | Data, credentials and network flows |
 | [Design tokens](design/tokens.json) | Shared values and motion parameters |
 | [Components](design/components.json) | Shared component ownership and invariants |
 | [Icons](design/icons.json) | Icon mapping |
+| `JustMarkdown/Localizable.xcstrings` / `InfoPlist.xcstrings` | Shared native/Web UI translations and system permission copy |
 
 Maintain requirements in these sources rather than duplicating the product specification here. Expanded and collapsed outline states share one toggle and row component. Motion must support Reduce Motion and rapid reversal.
 
@@ -27,6 +28,7 @@ Maintain requirements in these sources rather than duplicating the product speci
 - Preview is read-only. Source can assist reading and edit only on an explicit request. Keep tools within the current file, validate revision and unique nonoverlapping replacements, apply atomically, save, and share undo/redo with manual input. Do not add an Apply stage or fixed tool-round limit; journal completed tools and detect repetition without document progress.
 - Keep credentials, transport, file access and physical keyboard handling native. Software Return inserts a newline; physical Enter sends and Shift+Enter inserts a newline. Respect IME confirmation, repeats and drafts during generation.
 - Use one rendering, selection and motion implementation. Web content must not receive API keys. Provider failures must not introduce automatic protocol/model fallback or retries.
+- Follow the system's App language selection, with English fallback. Keep native and Web UI copy in the String Catalogs and regenerate Web resources after translation changes. Preserve document text, filenames, references and model responses verbatim; test helpers must not infer control state from a translated label.
 
 ## Editing and verification
 
@@ -39,6 +41,6 @@ Maintain requirements in these sources rather than duplicating the product speci
 
 ## Repository hygiene
 
-Public documentation must help users operate the app or contributors maintain it. README owns usage, CONTRIBUTING owns development and testing, SECURITY owns vulnerability reporting, and docs contains architecture and privacy. Keep actual product limitations with the relevant user guidance. CI/PR records hold run results and Issues track concrete defects. Do not retain acceptance progress, old provider results, chat histories or investigation reports, including by moving them into another document or archive.
+Public documentation must help users operate the app or contributors maintain it. Keep README to the agreed introduction and screenshot; CONTRIBUTING owns development and testing, SECURITY owns vulnerability reporting, and docs contains architecture and privacy. Keep actual product limitations with the relevant user guidance. CI/PR records hold run results and Issues track concrete defects. Do not retain acceptance progress, old provider results, chat histories or investigation reports, including by moving them into another document or archive.
 
 Scripts require a repeatable maintenance purpose documented in CONTRIBUTING.md. Stable regressions belong in test targets. Remove temporary probes, raw requests/responses, build caches, screenshots and exploratory assets after investigation. Preserve approved brand masters, dependency licenses and shared component invariants.

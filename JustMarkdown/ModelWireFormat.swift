@@ -77,7 +77,7 @@ enum ModelWireFormat {
         }
         if description.contains("rate_limit") { return .rateLimited(0) }
         if ["invalid_api_key", "authentication_error"].contains(where: description.contains) {
-            return .service(401, "认证失败。")
+            return .service(401, String(localized: "Authentication failed."))
         }
         return fallback
     }

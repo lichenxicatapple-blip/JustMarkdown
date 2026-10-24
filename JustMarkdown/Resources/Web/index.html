@@ -1,5 +1,5 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' jm-resource: data: https: http:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';"><title>JustMarkdown</title></head><body><div id="mdv-reading-concept" aria-label="Markdown 文档阅读">
-  <div class="mdv-app" data-layout="document" data-component="ReaderScreen" aria-label="Markdown 文档"></div>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' jm-resource: data: https: http:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';"><title>JustMarkdown</title></head><body><div id="mdv-reading-concept" aria-label="Markdown reader" data-l10n-aria-label="Markdown reader">
+  <div class="mdv-app" data-layout="document" data-component="ReaderScreen" aria-label="Markdown document" data-l10n-aria-label="Markdown document"></div>
 </div>
 <style id="mdv-design-tokens">
 #mdv-reading-concept .mdv-app {
@@ -453,9 +453,9 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 </style>
 <template id="mdv-app-template">
   <div class="mdv-reading-layout">
-    <nav class="mdv-outline" data-component="OutlineNavigator" data-expanded="true" aria-label="文章目录">
+    <nav class="mdv-outline" data-component="OutlineNavigator" data-expanded="true" aria-label="Contents" data-l10n-aria-label="Contents">
       <div class="mdv-outline-inner">
-        <div class="mdv-outline-header"><span>文章目录</span></div>
+        <div class="mdv-outline-header"><span data-l10n="Contents">Contents</span></div>
         <div id="mdv-document-outline" class="mdv-outline-body"><ol class="mdv-outline-list"></ol></div>
       </div>
     </nav>
@@ -464,24 +464,24 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
       <article class="mdv-article">
       </article>
       <div class="mdv-source-panel" hidden>
-        <textarea class="mdv-source-editor" aria-label="Markdown 源码" spellcheck="false" autocapitalize="none"></textarea>
+        <textarea class="mdv-source-editor" aria-label="Markdown source" data-l10n-aria-label="Markdown source" spellcheck="false" autocapitalize="none"></textarea>
       </div>
     </main>
-<aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI 对话" hidden>
+<aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI conversation" data-l10n-aria-label="AI conversation" hidden>
   <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
   <header class="mdv-agent-header">
     <h2>AI</h2>
-    <button type="button" data-agent-action="collapse" class="cursor-interaction" aria-label="收起对话"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+    <button type="button" data-agent-action="collapse" class="cursor-interaction" aria-label="Collapse conversation" data-l10n-aria-label="Collapse conversation"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
   </header>
-  <div class="mdv-agent-scroll" role="region" aria-label="对话内容">
-    <div class="mdv-conversation" data-component="ConversationThread" aria-label="多轮问答"></div>
+  <div class="mdv-agent-scroll" role="region" aria-label="Conversation" data-l10n-aria-label="Conversation">
+    <div class="mdv-conversation" data-component="ConversationThread" aria-label="Conversation thread" data-l10n-aria-label="Conversation thread"></div>
   </div>
   <form class="mdv-composer" data-component="ConversationComposer">
     <div class="mdv-composer-reference" data-component="ContextAttachment" hidden></div>
-    <label class="mdv-sr-only" for="mdv-question-input">提问或继续追问</label>
-    <textarea id="mdv-question-input" class="mdv-agent-input" aria-label="提问或继续追问" rows="1" spellcheck="false" enterkeyhint="enter"></textarea>
+    <label class="mdv-sr-only" for="mdv-question-input" data-l10n="Ask a question or follow up">Ask a question or follow up</label>
+    <textarea id="mdv-question-input" class="mdv-agent-input" aria-label="Ask a question or follow up" data-l10n-aria-label="Ask a question or follow up" rows="1" spellcheck="false" enterkeyhint="enter"></textarea>
     <div class="mdv-composer-footer">
-      <button type="submit" class="mdv-agent-send cursor-interaction" aria-label="发送问题" disabled><i data-lucide="arrow-up" aria-hidden="true"></i></button>
+      <button type="submit" class="mdv-agent-send cursor-interaction" aria-label="Send message" data-l10n-aria-label="Send message" disabled><i data-lucide="arrow-up" aria-hidden="true"></i></button>
     </div>
   </form>
   <p class="mdv-agent-announcement mdv-sr-only" role="status" aria-live="polite"></p>
@@ -490,6 +490,7 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
   </div>
   </div>
 </template>
+<script src="localization.js"></script>
 <script src="agent.js"></script>
 <script src="source-history.js"></script>
 <style>

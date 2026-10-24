@@ -43,7 +43,7 @@ struct ReaderScreen: View {
                     ZStack {
                         ReaderWebView(session: session)
                             .simultaneousGesture(TapGesture().onEnded { toolsExpanded = false })
-                        if !session.rendererReady { ProgressView().accessibilityLabel("正在排版文档") }
+                        if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }
                     .overlay(alignment: .topLeading) {
                         if session.mode == "preview" && !session.agentModalActive {
@@ -56,7 +56,10 @@ struct ReaderScreen: View {
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .padding(.leading, 8).padding(.top, 16)
-                            .accessibilityLabel(session.outlineExpanded ? "收起文章目录" : "展开文章目录")
+                            .accessibilityLabel(
+                                session.outlineExpanded
+                                    ? String(localized: "Hide contents") : String(localized: "Show contents")
+                            )
                             .accessibilityIdentifier("OutlineToggle")
                         }
                     }
@@ -74,7 +77,7 @@ struct ReaderScreen: View {
                                 session.agentOpen && geometry.size.width >= 900 ? ReaderDesign.agentWidth + 32 : 8
                             )
                             .padding(.top, 16)
-                            .accessibilityLabel("关闭当前文档")
+                            .accessibilityLabel("Close document")
                             .accessibilityIdentifier("CloseDocument")
                         }
                     }
@@ -157,35 +160,35 @@ struct ReaderScreen: View {
                 .interactiveDismissDisabled()
         }
         .alert(
-            "无法完成操作",
+            "Unable to Complete Action",
             isPresented: Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })
         ) {
-            Button("好", role: .cancel) { session.errorMessage = nil }
+            Button("OK", role: .cancel) { session.errorMessage = nil }
         } message: {
             Text(session.errorMessage ?? "")
         }
-        .alert("加载本地图片", isPresented: $session.needsResourcePermission) {
-            Button("继续") {
+        .alert("Load Local Images", isPresented: $session.needsResourcePermission) {
+            Button("Continue") {
                 importingFolder = true
                 importing = true
             }
-            Button("取消", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("需要访问“\(session.resourcePermissionDirectory?.lastPathComponent ?? "")”文件夹。")
+            Text("Access to the “\(session.resourcePermissionDirectory?.lastPathComponent ?? "")” folder is required.")
         }
-        .alert("尚未配置模型", isPresented: $session.needsModelConfiguration) {
-            Button("取消", role: .cancel) { session.finishAgentConfiguration(saved: false) }
-            Button("前往设置") { session.modelSettingsRequested = true }
+        .alert("Model Not Configured", isPresented: $session.needsModelConfiguration) {
+            Button("Cancel", role: .cancel) { session.finishAgentConfiguration(saved: false) }
+            Button("Open Settings") { session.modelSettingsRequested = true }
         }
-        .alert("未能保存文档", isPresented: $session.closeSaveFailed) {
-            Button("重试") { Task { await session.closeDocument() } }
+        .alert("Unable to Save Document", isPresented: $session.closeSaveFailed) {
+            Button("Retry") { Task { await session.closeDocument() } }
                 .keyboardShortcut(.defaultAction)
-            Button("放弃修改并关闭", role: .destructive) {
+            Button("Discard Changes and Close", role: .destructive) {
                 Task { await session.closeDocument(discardChanges: true) }
             }
-            Button("取消", role: .cancel) { session.cancelDocumentClose() }
+            Button("Cancel", role: .cancel) { session.cancelDocumentClose() }
         } message: {
-            Text("放弃修改将丢失未保存的内容。")
+            Text("Closing without saving will discard your changes.")
         }
     }
 
@@ -231,7 +234,7 @@ struct ReaderScreen: View {
             .accessibilityLabel(homeSlogan.joined(separator: " "))
             .accessibilityIdentifier("HomeSlogan")
         case .openDocument:
-            Button("打开文档", systemImage: "doc", action: openDocument)
+            Button("Open Document", systemImage: "doc", action: openDocument)
                 .buttonStyle(.glassProminent).controlSize(.large)
                 .accessibilityIdentifier("OpenDocument")
                 .accessibilityFocused($focusedAction, equals: .open)
@@ -239,7 +242,7 @@ struct ReaderScreen: View {
             Button {
                 recentsPresented = true
             } label: {
-                Text("最近打开...")
+                Text("Recent Documents...")
                     .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
                     .contentShape(Rectangle())
             }
@@ -293,7 +296,7 @@ struct ReaderScreen: View {
                             }
                             .modifier(ReaderGlassControl())
                             .disabled(!session.canUndoSource)
-                            .accessibilityLabel("撤销").accessibilityIdentifier("SourceUndo")
+                            .accessibilityLabel("Undo").accessibilityIdentifier("SourceUndo")
                             Button {
                                 session.performSourceHistory("redo")
                             } label: {
@@ -301,7 +304,7 @@ struct ReaderScreen: View {
                             }
                             .modifier(ReaderGlassControl())
                             .disabled(!session.canRedoSource)
-                            .accessibilityLabel("重做").accessibilityIdentifier("SourceRedo")
+                            .accessibilityLabel("Redo").accessibilityIdentifier("SourceRedo")
                         }
                         Button {
                             session.toggleAgent()
@@ -323,19 +326,22 @@ struct ReaderScreen: View {
                                 compact: compact)
                         }
                         .modifier(ReaderGlassControl())
-                        .accessibilityLabel(session.mode == "source" ? "切换到预览" : "切换到源码")
+                        .accessibilityLabel(
+                            session.mode == "source"
+                                ? String(localized: "Switch to preview") : String(localized: "Switch to source")
+                        )
                         .accessibilityIdentifier("ModeToggle")
                         .accessibilityHidden(compact && !toolsExpanded)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                         Menu {
-                            Button("模型设置", systemImage: "slider.horizontal.3") {
+                            Button("Model Settings", systemImage: "slider.horizontal.3") {
                                 presentModelSettings()
                             }
                         } label: {
                             actionIcon("ellipsis", compact: compact)
                         }
                         .modifier(ReaderGlassControl())
-                        .accessibilityLabel("更多").accessibilityIdentifier("More")
+                        .accessibilityLabel("More").accessibilityIdentifier("More")
                         .accessibilityFocused($focusedAction, equals: .more)
                         .accessibilityHidden(compact && !toolsExpanded)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -350,7 +356,10 @@ struct ReaderScreen: View {
                         actionIcon("chevron.left", compact: true).rotationEffect(.degrees(toolsExpanded ? 180 : 0))
                     }
                     .modifier(ReaderGlassControl())
-                    .accessibilityLabel(toolsExpanded ? "收起阅读工具" : "展开阅读工具")
+                    .accessibilityLabel(
+                        toolsExpanded
+                            ? String(localized: "Hide reading tools") : String(localized: "Show reading tools")
+                    )
                     .accessibilityIdentifier("ToolsToggle")
                     .accessibilityFocused($focusedAction, equals: .tools)
                 }

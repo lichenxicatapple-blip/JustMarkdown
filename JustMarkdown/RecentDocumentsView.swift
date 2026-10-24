@@ -13,7 +13,7 @@ struct RecentDocumentsView: View {
         NavigationStack {
             Group {
                 if store.documents.isEmpty {
-                    Text("暂无记录").font(.body).foregroundStyle(.secondary)
+                    Text("No recent documents").font(.body).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .accessibilityIdentifier("RecentDocumentsEmpty")
                 } else {
@@ -35,7 +35,7 @@ struct RecentDocumentsView: View {
                                         .lineLimit(1).truncationMode(.middle)
                                 }
                                 Spacer(minLength: 0)
-                                if opening == document.id { ProgressView().accessibilityLabel("正在打开") }
+                                if opening == document.id { ProgressView().accessibilityLabel("Opening document") }
                             }
                             .padding(.vertical, 4).frame(minHeight: ReaderDesign.hitTarget)
                             .contentShape(Rectangle())
@@ -48,11 +48,11 @@ struct RecentDocumentsView: View {
                     .listStyle(.plain)
                 }
             }
-            .navigationTitle("最近打开").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Recent Documents").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if compact {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("关闭", systemImage: "xmark") { dismiss() }
+                        Button("Close", systemImage: "xmark") { dismiss() }
                             .labelStyle(.iconOnly).keyboardShortcut(.cancelAction)
                             .accessibilityIdentifier("CloseRecentDocuments")
                             .disabled(opening != nil)
@@ -66,10 +66,10 @@ struct RecentDocumentsView: View {
                 ? nil : min(ReaderDesign.recentsMaxHeight, 56 + rowHeight * CGFloat(max(2, store.documents.count)))
         )
         .interactiveDismissDisabled(opening != nil)
-        .alert("无法打开文档", isPresented: $failed) {
-            Button("好", role: .cancel) {}
+        .alert("Unable to Open Document", isPresented: $failed) {
+            Button("OK", role: .cancel) {}
         } message: {
-            Text("无法访问这份文档，请通过“打开文档”重新选择。")
+            Text("This document is unavailable. Select it again using Open Document.")
         }
     }
 }

@@ -2,8 +2,10 @@
 """Package the native reader, design values and offline libraries for WKWebView."""
 
 import argparse
+import ast
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -78,6 +80,42 @@ def vendor_assets():
     return assets
 
 
+def web_localizations():
+    catalog = json.loads((ROOT / "JustMarkdown/Localizable.xcstrings").read_text())
+    used = set()
+    for source in SOURCE.rglob("*"):
+        if source.suffix == ".js":
+            literals = re.findall(
+                r"""\bt\(\s*((?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'))""", source.read_text()
+            )
+            used.update(ast.literal_eval(literal) for literal in literals)
+        elif source.suffix == ".html":
+            used.update(re.findall(r'data-l10n(?:-aria-label)?="([^"]+)"', source.read_text()))
+    missing = used - catalog["strings"].keys()
+    if missing:
+        raise ValueError(
+            "Web UI strings missing from the String Catalog: " + ", ".join(sorted(missing))
+        )
+    languages = {catalog["sourceLanguage"]}
+    for entry in catalog["strings"].values():
+        if entry.get("shouldTranslate", True):
+            languages.update(entry.get("localizations", {}))
+    translations = {language: {} for language in sorted(languages)}
+    for key, entry in catalog["strings"].items():
+        if not entry.get("shouldTranslate", True):
+            continue
+        placeholders = set(re.findall(r"\{([a-zA-Z]\w*)\}", key))
+        for language, strings in translations.items():
+            unit = entry.get("localizations", {}).get(language, {}).get("stringUnit", {})
+            value = unit.get("value", key if language == catalog["sourceLanguage"] else None)
+            if value is None:
+                raise ValueError(f"Missing {language} translation: {key}")
+            if set(re.findall(r"\{([a-zA-Z]\w*)\}", value)) != placeholders:
+                raise ValueError(f"Mismatched {language} placeholders: {key}")
+            strings[key] = value
+    return translations
+
+
 def generate(destination):
     spec = json.loads((ROOT / "design/tokens.json").read_text())
     assets = vendor_assets()
@@ -114,6 +152,12 @@ def generate(destination):
     package.mkdir()
     (package / "index.html").write_text(html)
     (package / "reader.js").write_text(runtime)
+    localization = replace_once(
+        (SOURCE / "localization.js").read_text(),
+        "/* localization-data */ {}",
+        json.dumps(web_localizations(), ensure_ascii=False, separators=(",", ":")),
+    )
+    (package / "localization.js").write_text(localization)
     shutil.copy2(SOURCE / "agent/agent.js", package / "agent.js")
     shutil.copy2(SOURCE / "source-history.js", package / "source-history.js")
     for asset in assets:
