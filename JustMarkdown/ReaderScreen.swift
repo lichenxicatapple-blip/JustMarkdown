@@ -222,7 +222,7 @@ struct ReaderScreen: View {
         switch item {
         case .mark:
             Image("BrandMark").renderingMode(.template).resizable().scaledToFit()
-                .frame(width: markSize).foregroundStyle(.primary)
+                .frame(width: markSize).foregroundStyle(Color("BrandMarkTint"))
         case .slogan:
             ViewThatFits(in: .horizontal) {
                 Text(homeSlogan.joined(separator: " ")).fixedSize()

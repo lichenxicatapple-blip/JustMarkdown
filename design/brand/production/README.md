@@ -25,3 +25,4 @@
 4. 同步首页的 `JustMarkdown/Assets.xcassets/BrandMark.imageset/BrandMark.svg`。保留母版轮廓，将首页 SVG 的画布收至图形边界，避免图标画布的透明留白参与布局。提交母版、外观文件与 App 输入，核对首页标志和系统图标。
 
 首页标志与 Icon Composer 图标是独立输入，更新其中一个不会自动更新另一个。
+首页标志以模板矢量显示，使用 `JustMarkdown/Assets.xcassets/BrandMarkTint.colorset` 中适配浅色与深色外观的蓝灰色。
