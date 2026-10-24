@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "references": [
+    "https://developer.apple.com/sf-symbols/",
+    "https://lucide.dev/icons/"
+  ],
+  "style": {
+    "grid": 24,
+    "strokeWidth": 1.75,
+    "cap": "round",
+    "join": "round",
+    "color": "currentColor",
+    "minimumHitTarget": 44
+  },
+  "icons": [
+    {
+      "action": "outline",
+      "native": "sidebar.left",
+      "size": 19,
+      "web": "panel-left"
+    },
+    {
+      "action": "global-ai",
+      "native": "bubble.left",
+      "size": 20,
+      "compactSize": 18,
+      "web": "message-circle"
+    },
+    {
+      "action": "collapse-conversation-regular",
+      "native": "chevron.right",
+      "size": 18,
+      "web": "chevron-right"
+    },
+    {
+      "action": "collapse-conversation-compact",
+      "native": "chevron.down",
+      "size": 18,
+      "web": "chevron-down"
+    },
+    {
+      "action": "source",
+      "native": "chevron.left.forwardslash.chevron.right",
+      "size": 20,
+      "compactSize": 18,
+      "web": "code"
+    },
+    {
+      "action": "preview",
+      "native": "book",
+      "size": 20,
+      "compactSize": 18,
+      "web": "book-open"
+    },
+    {
+      "action": "more",
+      "native": "ellipsis",
+      "size": 20,
+      "compactSize": 18,
+      "web": "ellipsis"
+    },
+    {
+      "action": "send",
+      "native": "arrow.up",
+      "size": 19,
+      "web": "arrow-up"
+    },
+    {
+      "action": "stop",
+      "native": "stop.fill",
+      "size": 19,
+      "web": "square"
+    },
+    {
+      "action": "document-context",
+      "native": "doc.text",
+      "size": 16,
+      "web": "file-text"
+    },
+    {
+      "action": "source-context",
+      "native": "chevron.left.forwardslash.chevron.right",
+      "size": 16,
+      "web": "code"
+    },
+    {
+      "action": "quote-context",
+      "native": "quote.opening",
+      "size": 16,
+      "web": "quote"
+    },
+    {
+      "action": "remove-reference-or-cancel",
+      "native": "xmark",
+      "size": 18,
+      "web": "x"
+    },
+    {
+      "action": "toggle-reading-tools",
+      "native": "chevron.left",
+      "size": 18,
+      "expanded": "Rotate 180 degrees to point toward the trailing edge; preserve the same button and 44pt hit target.",
+      "web": "chevron-left"
+    },
+    {
+      "action": "source-undo",
+      "native": "arrow.uturn.backward",
+      "size": 20,
+      "compactSize": 18,
+      "web": "undo-2"
+    },
+    {
+      "action": "source-redo",
+      "native": "arrow.uturn.forward",
+      "size": 20,
+      "compactSize": 18,
+      "web": "redo-2"
+    },
+    {
+      "action": "close-document",
+      "native": "xmark",
+      "size": 18,
+      "compactSize": 18,
+      "web": "x"
+    }
+  ],
+  "status": "Native SF Symbol mapping and web icon identifiers.",
+  "webLibrary": "Bundled Lucide as pinned in vendor/assets.json; native artwork replaces rendered icon nodes."
+}

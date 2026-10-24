@@ -1,0 +1,934 @@
+(() => {
+  const root = document.getElementById('mdv-reading-concept');
+  const template = document.getElementById('mdv-app-template');
+  const apps = Array.from(root.querySelectorAll('.mdv-app'));
+  const motion = JSON.parse(document.getElementById('mdv-motion-spec').textContent);
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  const markdownRenderer = window.markdownit({
+    html: true,
+    linkify: true,
+    typographer: false,
+    highlight(code, language) {
+      return language && window.hljs.getLanguage(language) ? window.hljs.highlight(code, { language, ignoreIllegals: true }).value : '';
+    }
+  });
+  markdownRenderer.use(window.markdownitTaskLists);
+  markdownRenderer.use(window.markdownitFootnote);
+  markdownRenderer.renderer.rules.footnote_caption = (tokens, index) => `[${tokens[index].meta.id + 1}]`;
+  markdownRenderer.use(window.texmath, { engine: window.katex, delimiters: ['dollars', 'brackets'] });
+  [...window.texmath.inlineRuleNames, ...window.texmath.blockRuleNames].forEach(type => {
+    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
+      const token = tokens[index];
+      const display = type.startsWith('math_block') || type === 'math_inline_double';
+      const tag = type.startsWith('math_block') ? 'div' : 'span';
+      return `<${tag} class="mdv-math" data-math-display="${display}"${renderer.renderAttrs(token)}>${markdownRenderer.utils.escapeHtml(token.content)}</${tag}>`;
+    };
+  });
+  // Retain the parser's zero-based, end-exclusive source ranges on rendered blocks.
+  markdownRenderer.core.ruler.after('block', 'mdv_source_ranges', state => {
+    state.tokens.forEach(token => {
+      if (!token.map || token.type === 'inline' || token.nesting < 0) return;
+      token.attrSet('data-source-start', String(token.map[0]));
+      token.attrSet('data-source-end', String(token.map[1]));
+      if (token.type === 'fence' || token.type === 'code_block') {
+        const count = token.content.replace(/\n$/, '').split('\n').length;
+        token.attrSet('data-code-start', String(token.map[0] + (token.type === 'fence' ? 1 : 0)));
+        token.attrSet('data-code-count', String(count));
+      }
+      if (token.type === 'paragraph_open' && token.hidden) token.attrSet('class', 'mdv-tight-paragraph');
+    });
+  });
+  ['fence', 'code_block'].forEach(type => {
+    const original = markdownRenderer.renderer.rules[type];
+    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
+      const token = tokens[index];
+      if (type === 'fence' && token.info.trim().split(/\s/)[0].toLowerCase() === 'mermaid') {
+        return `<div class="mdv-mermaid" data-source-start="${token.map[0]}" data-source-end="${token.map[1]}"><pre><code>${markdownRenderer.utils.escapeHtml(token.content)}</code></pre></div>`;
+      }
+      return original(tokens, index, options, env, renderer).replace('<pre', `<pre${renderer.renderAttrs(token)}`);
+    };
+  });
+  ['paragraph_open', 'paragraph_close'].forEach(type => {
+    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
+      const token = tokens[index];
+      if (token.hidden) return token.nesting === 1 ? `<span${renderer.renderAttrs(token)}>` : '</span>';
+      return renderer.renderToken(tokens, index, options);
+    };
+  });
+  ['th_open', 'td_open'].forEach(type => {
+    markdownRenderer.renderer.rules[type] = (tokens, index, options, env, renderer) => {
+      const token = tokens[index];
+      const alignment = token.attrGet('style')?.match(/text-align:(left|center|right)/)?.[1];
+      if (alignment) token.attrSet('align', alignment);
+      return renderer.renderToken(tokens, index, options);
+    };
+  });
+  markdownRenderer.renderer.rules.html_block = (tokens, index, options, env, renderer) => {
+    const token = tokens[index];
+    return token.content.replace(/<([a-z][\w:-]*)(?=[\s>])/i, (opening, tag) => `<${tag}${renderer.renderAttrs(token)}`);
+  };
+  const renderImage = markdownRenderer.renderer.rules.image;
+  markdownRenderer.renderer.rules.image = (tokens, index, options, env, renderer) => {
+    const token = tokens[index];
+    const sourcePath = token.attrGet('src');
+    token.attrSet('data-source-path', sourcePath);
+    return renderImage(tokens, index, options, env, renderer);
+  };
+  reducedMotion.addEventListener('change', event => {
+    if (event.matches) apps.forEach(app => app.getAnimations({ subtree: true }).forEach(animation => { if (animation.effect?.getTiming().iterations !== Infinity) animation.finish(); }));
+  });
+  apps.forEach(app => {
+    app.append(template.content.cloneNode(true));
+    const layout = app.dataset.layout;
+    const state = { mode: 'preview', agent: false, outline: !matchMedia('(max-width: 560px)').matches };
+    let selection = '';
+    let selectionAttachment = null;
+    const reader = app.querySelector('.mdv-article');
+    const source = app.querySelector('.mdv-source-panel');
+    const sourceEditor = app.querySelector('.mdv-source-editor');
+    const sourceHistory = window.JustMarkdownSourceHistory.create({ editor: sourceEditor,
+      onState: detail => app.dispatchEvent(new CustomEvent('mdv-source-history', { detail })) });
+    const workspace = app.querySelector('.mdv-workspace');
+    const agent = app.querySelector('.mdv-agent');
+    const readingLayout = app.querySelector('.mdv-reading-layout');
+    const outline = app.querySelector('.mdv-outline');
+    const outlineBody = app.querySelector('.mdv-outline-body');
+    const outlineList = app.querySelector('.mdv-outline-list');
+    const headings = [];
+    let currentHeadingId = null;
+    let outlineFollowFrame = 0;
+    let outlineFollowPaused = false;
+    let outlineFollowVelocity = 0;
+    let outlineFollowTime = 0;
+    let outlineFollowPosition = null;
+    let renderedMarkdown = null;
+    let jumpUntil = 0;
+    let displayedMode = state.mode;
+    let modeAnimation = null;
+    let modeRevision = 0;
+    let positioning = false;
+    let transitionAnchor = null;
+    let documentReady = Promise.resolve();
+    const enhancementRevisions = new WeakMap();
+    let diagramSequence = 0;
+    const diagramSources = new WeakMap();
+    const sourceMeasure = document.createElement('div');
+    sourceMeasure.className = 'mdv-source-measure';
+    sourceMeasure.setAttribute('aria-hidden', 'true');
+    sourceMeasure.inert = true;
+    app.append(sourceMeasure);
+    let measurementKey = '';
+    let sourceLines = [];
+    let lastPosition = null;
+    let pinnedAnchor = null;
+    let positionFrame = 0;
+    const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+    function measureSource() {
+      const style = getComputedStyle(sourceEditor);
+      const properties = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wordSpacing', 'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'textIndent', 'textAlign', 'direction', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
+      const key = JSON.stringify([sourceEditor.value, sourceEditor.clientWidth, ...properties.map(property => style[property])]);
+      if (key === measurementKey) return sourceLines;
+      measurementKey = key;
+      properties.forEach(property => { sourceMeasure.style[property] = style[property]; });
+      sourceMeasure.style.width = `${sourceEditor.clientWidth}px`;
+      sourceMeasure.replaceChildren(...sourceEditor.value.split('\n').map(line => {
+        const span = document.createElement('span');
+        span.textContent = line || '\u200b';
+        return span;
+      }));
+      const top = sourceMeasure.getBoundingClientRect().top;
+      sourceLines = Array.from(sourceMeasure.children, line => {
+        const rect = line.getBoundingClientRect();
+        return { top: rect.top - top, height: rect.height };
+      });
+      return sourceLines;
+    }
+    function viewportSnapshot() {
+      return { mode: displayedMode, value: sourceEditor.value, windowY: window.scrollY, editorY: sourceEditor.scrollTop, width: displayedMode === 'source' ? sourceEditor.clientWidth : reader.clientWidth };
+    }
+    function unchangedViewport() {
+      if (!lastPosition) return false;
+      const now = viewportSnapshot();
+      return Object.keys(now).every(key => typeof now[key] === 'number' ? Math.abs(now[key] - lastPosition.viewport[key]) < 1 : now[key] === lastPosition.viewport[key]);
+    }
+    function mappedBlocks() {
+      return Array.from(reader.querySelectorAll('[data-source-start]:not(pre > code)')).map(element => ({
+        element, start: Number(element.dataset.sourceStart), end: Number(element.dataset.sourceEnd), rect: element.getBoundingClientRect()
+      })).filter(block => block.rect.height > 0);
+    }
+    function blockLine(block, y) {
+      if (block.element.dataset.codeStart !== undefined) {
+        const style = getComputedStyle(block.element);
+        const start = Number(block.element.dataset.codeStart);
+        const count = Number(block.element.dataset.codeCount);
+        return start + clamp((y - block.rect.top - parseFloat(style.paddingTop)) / parseFloat(style.lineHeight), 0, count - .001);
+      }
+      return block.start + clamp((y - block.rect.top) / block.rect.height, 0, .9999) * Math.max(1, block.end - block.start);
+    }
+    function captureReadingPosition() {
+      if (positioning && transitionAnchor) return { ...transitionAnchor };
+      // Keep the same semantic anchor on an unchanged round trip, even when an edge
+      // clamps scrolling or one image occupies far more space than its source line.
+      if (unchangedViewport()) return { ...lastPosition.anchor };
+      if (displayedMode === 'source') {
+        const lines = measureSource();
+        const rect = sourceEditor.getBoundingClientRect();
+        const y = Math.max(20, rect.top + sourceEditor.clientTop + parseFloat(getComputedStyle(sourceEditor).paddingTop));
+        const localY = sourceEditor.scrollTop + y - rect.top - sourceEditor.clientTop;
+        let index = lines.findIndex(line => line.top + line.height > localY);
+        if (index < 0) index = lines.length - 1;
+        const line = index + clamp((localY - lines[index].top) / lines[index].height, 0, .9999);
+        return { line, y, atStart: sourceEditor.scrollTop < 1 && window.scrollY < 1 };
+      }
+      const y = Math.max(20, reader.getBoundingClientRect().top + parseFloat(getComputedStyle(reader).paddingTop));
+      const blocks = mappedBlocks();
+      const covering = blocks.filter(block => block.rect.top <= y && block.rect.bottom > y);
+      // A paragraph/list row wins over its containing list, quote or table.
+      covering.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.rect.height - b.rect.height);
+      const block = covering[0] || blocks.filter(item => item.rect.bottom > y).sort((a, b) => a.rect.top - b.rect.top || a.rect.height - b.rect.height)[0] || blocks.at(-1);
+      if (!block) return { line: 0, y, atStart: true };
+      const anchorY = clamp(y, block.rect.top, block.rect.bottom);
+      return { line: blockLine(block, anchorY), y: anchorY, atStart: window.scrollY < 1 };
+    }
+    function restoreReadingPosition(anchor) {
+      if (displayedMode === 'source') {
+        // Preview scrolls the document; the editor has its own scroll container.
+        window.scrollTo({ top: 0, behavior: 'instant' });
+        const lines = measureSource();
+        const index = clamp(Math.floor(anchor.line), 0, lines.length - 1);
+        const rect = sourceEditor.getBoundingClientRect();
+        const top = rect.top + sourceEditor.clientTop;
+        const y = Math.max(top + parseFloat(getComputedStyle(sourceEditor).paddingTop), anchor.y);
+        const localY = lines[index].top + (anchor.line - Math.floor(anchor.line)) * lines[index].height;
+        sourceEditor.scrollTop = anchor.atStart ? 0 : localY - (y - top);
+      } else {
+        const blocks = mappedBlocks();
+        const distance = block => anchor.line < block.start ? block.start - anchor.line : anchor.line >= block.end ? anchor.line - block.end + .001 : 0;
+        blocks.sort((a, b) => distance(a) - distance(b) || (a.end - a.start) - (b.end - b.start) || a.rect.height - b.rect.height);
+        const block = blocks[0];
+        if (block) {
+          let y;
+          if (block.element.dataset.codeStart !== undefined) {
+            const style = getComputedStyle(block.element);
+            y = block.rect.top + parseFloat(style.paddingTop) + clamp(anchor.line - Number(block.element.dataset.codeStart), 0, Number(block.element.dataset.codeCount)) * parseFloat(style.lineHeight);
+          } else {
+            y = block.rect.top + clamp((anchor.line - block.start) / Math.max(1, block.end - block.start), 0, 1) * block.rect.height;
+          }
+          window.scrollTo({ top: anchor.atStart ? 0 : window.scrollY + y - Math.max(20, anchor.y), behavior: 'instant' });
+        }
+      }
+      const current = currentReadingHeading();
+      if (displayedMode === 'preview' && current) markHeading(current.id);
+      lastPosition = { anchor: { ...anchor }, viewport: viewportSnapshot() };
+      pinnedAnchor = { ...anchor };
+    }
+    // Reflow or a late image can change geometry. Keep the anchor until the user
+    // starts another interaction, without chasing their subsequent scrolling.
+    const positionObserver = new ResizeObserver(() => {
+      if (!pinnedAnchor || positionFrame) return;
+      positionFrame = requestAnimationFrame(() => {
+        positionFrame = 0;
+        if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
+      });
+    });
+    positionObserver.observe(reader);
+    positionObserver.observe(sourceEditor);
+    ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => {
+      document.addEventListener(type, () => { pinnedAnchor = null; }, { passive: true, capture: true });
+    });
+    sourceEditor.addEventListener('input', () => { lastPosition = null; pinnedAnchor = null; measurementKey = ''; });
+    function buildOutline() {
+    stopOutlineFollow();
+    outlineList.replaceChildren();
+    const minimumLevel = headings.length ? Math.min(...headings.map(heading => Number(heading.tagName.slice(1)))) : 1;
+    const containers = [{ level: minimumLevel - 1, list: outlineList }];
+    headings.forEach((heading, index) => {
+      const level = Number(heading.tagName.slice(1));
+      while (containers.length > 1 && containers.at(-1).level >= level) containers.pop();
+      if (!heading.id) heading.id = `${layout}-heading-${index}`;
+      const item = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'mdv-outline-row';
+      row.dataset.component = 'OutlineRow';
+      row.dataset.level = String(containers.length - 1);
+      const link = document.createElement('a');
+      link.href = `#${heading.id}`;
+      link.dataset.tocTarget = heading.id;
+      link.className = 'cursor-interaction';
+      link.textContent = heading.textContent;
+      const hasChildren = Number(headings[index + 1]?.tagName.slice(1)) > level;
+      let branch = null;
+      let children = null;
+      if (hasChildren) {
+        branch = document.createElement('div');
+        branch.id = `${heading.id}-children`;
+        branch.className = 'mdv-outline-branch';
+        branch.dataset.expanded = 'true';
+        const clip = document.createElement('div');
+        clip.className = 'mdv-outline-branch-clip';
+        children = document.createElement('ol');
+        children.className = 'mdv-outline-children';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'cursor-interaction';
+        toggle.dataset.collapseHeading = branch.id;
+        toggle.setAttribute('aria-label', `折叠或展开 ${heading.textContent}`);
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-controls', branch.id);
+        const icon = document.createElement('i');
+        icon.dataset.lucide = 'chevron-right';
+        icon.setAttribute('aria-hidden', 'true');
+        toggle.append(icon);
+        row.append(toggle);
+        clip.append(children);
+        branch.append(clip);
+      } else {
+        const spacer = document.createElement('span');
+        spacer.className = 'mdv-outline-spacer';
+        spacer.setAttribute('aria-hidden', 'true');
+        row.append(spacer);
+      }
+      row.append(link);
+      item.append(row);
+      if (branch) item.append(branch);
+      containers.at(-1).list.append(item);
+      if (children) containers.push({ level, list: children });
+    });
+    if (window.lucide) window.lucide.createIcons({ attrs: { width: 16, height: 16 } });
+    }
+    function currentReadingHeading() {
+      const visible = headings.filter(heading => heading.getClientRects().length);
+      let current = visible[0];
+      visible.forEach(heading => { if (heading.getBoundingClientRect().top <= 110) current = heading; });
+      // The last section may never reach the top threshold at the document end.
+      const last = visible.at(-1);
+      if (last && window.scrollY > 0 && window.scrollY + innerHeight >= document.documentElement.scrollHeight - 2 && last.getBoundingClientRect().top < innerHeight) current = last;
+      return current;
+    }
+    function stopOutlineFollow() {
+      cancelAnimationFrame(outlineFollowFrame);
+      outlineFollowFrame = 0;
+      outlineFollowVelocity = 0;
+      outlineFollowTime = 0;
+      outlineFollowPosition = null;
+    }
+    function advanceOutlineFollow(now) {
+      outlineFollowFrame = 0;
+      if (outlineFollowPaused || !state.outline || displayedMode !== 'preview' || outlineBody.inert) { stopOutlineFollow(); return; }
+      const current = outlineList.querySelector('[aria-current="location"]');
+      if (!current) { stopOutlineFollow(); return; }
+      const viewport = outlineBody.getBoundingClientRect();
+      const row = current.getBoundingClientRect();
+      const actualPosition = outlineBody.scrollTop;
+      const maximum = Math.max(0, outlineBody.scrollHeight - outlineBody.clientHeight);
+      const target = clamp(actualPosition + row.top + row.height / 2 - (viewport.top + outlineBody.clientTop + outlineBody.clientHeight / 2), 0, maximum);
+      const position = clamp(outlineFollowPosition ?? actualPosition, 0, maximum);
+      const offset = position - target;
+      if (reducedMotion.matches || motion.layout.duration <= 0 || (Math.abs(offset) < .75 && Math.abs(outlineFollowVelocity) < .02)) {
+        outlineBody.scrollTop = target;
+        stopOutlineFollow();
+        return;
+      }
+      // Critically damped following preserves velocity when the destination changes.
+      // Use the shared layout response time and cap elapsed time after a dropped frame.
+      const elapsed = outlineFollowTime ? Math.min(32, now - outlineFollowTime) : 0;
+      outlineFollowTime = now;
+      const rate = 6 / motion.layout.duration;
+      const tangent = outlineFollowVelocity + rate * offset;
+      const decay = Math.exp(-rate * elapsed);
+      const next = target + (offset + tangent * elapsed) * decay;
+      outlineFollowVelocity = (outlineFollowVelocity - rate * tangent * elapsed) * decay;
+      // Preserve fractional progress even if WebKit quantizes the scroll offset.
+      outlineFollowPosition = clamp(next, 0, maximum);
+      outlineBody.scrollTop = outlineFollowPosition;
+      if (next < 0 || next > maximum) outlineFollowVelocity = 0;
+      outlineFollowFrame = requestAnimationFrame(advanceOutlineFollow);
+    }
+    function keepCurrentHeadingVisible() {
+      if (!outlineFollowPaused && !outlineFollowFrame) outlineFollowFrame = requestAnimationFrame(advanceOutlineFollow);
+    }
+    function pauseOutlineFollow() {
+      outlineFollowPaused = true;
+      stopOutlineFollow();
+    }
+    ['pointerdown', 'touchstart', 'wheel'].forEach(type => outlineBody.addEventListener(type, pauseOutlineFollow, { passive: true }));
+    const scrollingKeys = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+    outlineBody.addEventListener('keydown', event => { if (scrollingKeys.has(event.key)) pauseOutlineFollow(); });
+    function resumeOutlineFollow(event) {
+      if (!outlineFollowPaused || outline.contains(event.target)) return;
+      if (!readingLayout.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
+      outlineFollowPaused = false;
+      keepCurrentHeadingVisible();
+    }
+    ['pointerdown', 'touchstart', 'wheel'].forEach(type => document.addEventListener(type, resumeOutlineFollow, { passive: true, capture: true }));
+    document.addEventListener('keydown', event => { if (scrollingKeys.has(event.key)) resumeOutlineFollow(event); });
+    reducedMotion.addEventListener('change', () => keepCurrentHeadingVisible());
+    function markHeading(id) {
+      currentHeadingId = id;
+      const links = Array.from(outlineList.querySelectorAll('[data-toc-target]'));
+      const previous = outlineList.querySelector('[aria-current="location"]');
+      let current = links.find(link => link.dataset.tocTarget === id);
+      // A manually collapsed branch represents its current descendant.
+      let branch;
+      while (current && (branch = current.closest('.mdv-outline-branch[data-expanded="false"]'))) {
+        current = branch.parentElement.querySelector(':scope > .mdv-outline-row > a');
+      }
+      links.forEach(link => {
+        if (link === current) link.setAttribute('aria-current', 'location');
+        else link.removeAttribute('aria-current');
+      });
+      if (current && current !== previous) keepCurrentHeadingVisible();
+    }
+    const outlineSizeObserver = new ResizeObserver(keepCurrentHeadingVisible);
+    outlineSizeObserver.observe(outlineBody);
+    outlineSizeObserver.observe(outlineList);
+    outlineBody.addEventListener('transitionend', event => {
+      if (event.propertyName === 'grid-template-rows') keepCurrentHeadingVisible();
+    });
+    async function enhanceDocument(surface = reader) {
+      const revision = (enhancementRevisions.get(surface) || 0) + 1;
+      enhancementRevisions.set(surface, revision);
+      surface.querySelectorAll('.mdv-math').forEach(element => {
+        if (element.dataset.mathRendered) return;
+        const tex = element.dataset.mathSource || element.textContent;
+        element.dataset.mathSource = tex;
+        window.katex.render(tex, element, { displayMode: element.dataset.mathDisplay === 'true', throwOnError: false, trust: false, strict: 'ignore', output: 'htmlAndMathml' });
+        element.dataset.mathRendered = 'true';
+      });
+      const resolveColor = name => {
+        sourceMeasure.style.color = `var(${name})`;
+        return getComputedStyle(sourceMeasure).color;
+      };
+      const paper = getComputedStyle(app).backgroundColor;
+      const ink = getComputedStyle(app).color;
+      window.mermaid.initialize({
+        startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
+        theme: 'base', fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif',
+        themeVariables: {
+          darkMode: matchMedia('(prefers-color-scheme: dark)').matches,
+          background: paper, primaryColor: resolveColor('--mdv-chrome'), primaryTextColor: ink,
+          primaryBorderColor: resolveColor('--mdv-line'), secondaryColor: paper,
+          tertiaryColor: resolveColor('--mdv-source'), textColor: ink, lineColor: resolveColor('--mdv-muted'),
+          actorBkg: resolveColor('--mdv-chrome'), actorTextColor: ink, actorBorder: resolveColor('--mdv-line'),
+          signalColor: ink, signalTextColor: ink, noteBkgColor: resolveColor('--mdv-source'), noteTextColor: ink,
+          edgeLabelBackground: paper, fontSize: '16px'
+        },
+        flowchart: { htmlLabels: false, useMaxWidth: false }, sequence: { useMaxWidth: false }
+      });
+      const diagramTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      for (const element of surface.querySelectorAll('.mdv-mermaid')) {
+        if (element.dataset.diagramTheme === diagramTheme) continue;
+        const code = diagramSources.get(element) || element.textContent;
+        diagramSources.set(element, code);
+        element.dataset.diagramSource = code;
+        try {
+          const { svg } = await window.mermaid.render(`${layout}-diagram-${++diagramSequence}`, code);
+          if (revision !== enhancementRevisions.get(surface) || !element.isConnected) return;
+          element.innerHTML = svg;
+          element.dataset.diagramTheme = diagramTheme;
+          const diagram = element.querySelector('svg');
+          if (diagram.viewBox.baseVal.width && diagram.viewBox.baseVal.height) {
+            diagram.style.width = `${diagram.viewBox.baseVal.width}px`;
+            diagram.style.height = `${diagram.viewBox.baseVal.height}px`;
+          }
+          diagram.setAttribute('role', 'img');
+          if (!diagram.hasAttribute('aria-label') && !diagram.hasAttribute('aria-labelledby')) diagram.setAttribute('aria-label', 'Mermaid 文档图表');
+        } catch (error) {
+          if (revision !== enhancementRevisions.get(surface) || !element.isConnected) return;
+          const pre = document.createElement('pre');
+          const codeElement = document.createElement('code');
+          codeElement.textContent = code;
+          pre.append(codeElement);
+          const message = document.createElement('p');
+          message.className = 'mdv-diagram-error';
+          message.textContent = 'Mermaid 图表语法无法解析，已保留原始内容。';
+          element.replaceChildren(message, pre);
+        }
+      }
+      await document.fonts.ready;
+    }
+    function renderRichMarkdown(markdown, prefix) {
+      const documentFragment = window.DOMPurify.sanitize(markdownRenderer.render(markdown), {
+        USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true,
+        ALLOW_DATA_ATTR: false,
+        ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display'],
+        FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'textarea', 'button', 'select', 'option', 'link', 'meta', 'base'],
+        FORBID_ATTR: ['style', 'name', 'autofocus', 'form', 'contenteditable', 'tabindex']
+      });
+      documentFragment.querySelectorAll('input').forEach(input => {
+        if (input.type !== 'checkbox') input.remove();
+        else input.disabled = true;
+      });
+      documentFragment.querySelectorAll('[class]').forEach(element => {
+        Array.from(element.classList).filter(name => name.startsWith('mdv-') && !['mdv-tight-paragraph', 'mdv-math', 'mdv-mermaid'].includes(name)).forEach(name => element.classList.remove(name));
+      });
+      const contentIds = new Map();
+      documentFragment.querySelectorAll('[id]').forEach((element, index) => {
+        const original = element.id;
+        element.id = `${prefix}-content-${index}-${original}`;
+        if (!contentIds.has(original)) contentIds.set(original, element.id);
+      });
+      documentFragment.querySelectorAll('a[href^="#"]').forEach(link => {
+        const id = link.getAttribute('href').slice(1);
+        if (contentIds.has(id)) link.setAttribute('href', `#${contentIds.get(id)}`);
+      });
+      documentFragment.querySelectorAll('a[href]:not([href^="#"])').forEach(link => {
+        link.setAttribute('target', '_blank');
+        link.setAttribute('rel', 'noopener noreferrer');
+      });
+      documentFragment.querySelectorAll('img').forEach(image => {
+        const path = image.getAttribute('data-source-path') || image.getAttribute('src');
+        image.setAttribute('data-source-path', path || '');
+      });
+      prepareLocalResources(documentFragment, prefix === layout);
+      documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
+      return documentFragment;
+    }
+    function updateDocument() {
+      if (renderedMarkdown === sourceEditor.value) return;
+      renderedMarkdown = sourceEditor.value;
+      const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
+      reader.replaceChildren(documentFragment);
+      const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
+      if (documentHeadings[0]?.tagName === 'H1' && reader.firstElementChild === documentHeadings[0]) documentHeadings.shift();
+      headings.splice(0, headings.length, ...documentHeadings);
+      buildOutline();
+      markHeading(headings[0]?.id);
+      documentReady = enhanceDocument();
+    }
+    /* native-bridge */
+    /* native-agent */
+    const agentExperience = window.JustMarkdownAgent.create({
+      ensureConfigured: ensureNativeAgentConfigured,
+      provider: createNativeAgentTransport(), nativeInputs,
+      app, panel: agent, renderMarkdown: renderRichMarkdown,
+      enhance: enhanceDocument, motion, reducedMotion,
+      onPresentationChange(value) { postNative({ type: 'agentPresentation', ...value }); },
+      onToggle(shown) {
+        state.agent = shown;
+        if (shown && app.clientWidth < 1100) state.outline = false;
+        render();
+      },
+      documentAttachment() {
+        const markdown = sourceEditor.value;
+        return {
+          text: markdown, markdown, mode: displayedMode, scope: 'document',
+          location: '当前文档 · ' + nativeDocumentName, documentName: nativeDocumentName
+        };
+      }
+    });
+    updateDocument();
+    function render() {
+      window.webkit?.messageHandlers.reader.postMessage({type:'state', mode:state.mode, outline:state.outline});
+      const outlineWasExpanded = outline.dataset.expanded === 'true';
+      app.classList.toggle('mdv-showing-source', displayedMode === 'source');
+      reader.hidden = displayedMode !== 'preview';
+      source.hidden = displayedMode !== 'source';
+      agentExperience.present(state.agent);
+      workspace.classList.toggle('mdv-has-agent', state.agent);
+      const showOutline = state.outline && displayedMode === 'preview';
+      outline.hidden = displayedMode !== 'preview';
+      outline.dataset.expanded = String(showOutline);
+      outlineBody.inert = !showOutline;
+      outlineBody.setAttribute('aria-hidden', String(!showOutline));
+      outline.querySelector('.mdv-outline-header > span').setAttribute('aria-hidden', String(!showOutline));
+      readingLayout.classList.toggle('mdv-with-outline', showOutline);
+      if (!showOutline) stopOutlineFollow();
+      if (showOutline && !outlineWasExpanded) { outlineFollowPaused = false; keepCurrentHeadingVisible(); }
+    }
+    function switchMode(nextMode) {
+      pinnedAnchor = null;
+      state.mode = nextMode;
+      const revision = ++modeRevision;
+      const opacity = getComputedStyle(readingLayout).opacity;
+      modeAnimation?.cancel();
+      modeAnimation = null;
+      readingLayout.style.opacity = opacity;
+      render();
+      function finish() {
+        if (revision !== modeRevision) return;
+        readingLayout.style.removeProperty('opacity');
+        delete app.dataset.modeTransition;
+      }
+      function fadeTo(target, spec, done) {
+        if (revision !== modeRevision) return;
+        const start = getComputedStyle(readingLayout).opacity;
+        if (reducedMotion.matches || Math.abs(Number(start) - target) < .001) {
+          readingLayout.style.opacity = String(target);
+          done();
+          return;
+        }
+        const animation = readingLayout.animate([{ opacity: start }, { opacity: target }], { ...spec, fill: 'forwards' });
+        modeAnimation = animation;
+        animation.onfinish = () => {
+          if (revision !== modeRevision) return;
+          readingLayout.style.opacity = String(target);
+          animation.cancel();
+          modeAnimation = null;
+          done();
+        };
+      }
+      if (nextMode === displayedMode) {
+        const reveal = () => {
+          if (revision !== modeRevision) return;
+          if (positioning && transitionAnchor) restoreReadingPosition(transitionAnchor);
+          positioning = false;
+          transitionAnchor = null;
+          app.dataset.modeTransition = 'in';
+          fadeTo(1, motion.modeIn, finish);
+        };
+        if (positioning && displayedMode === 'preview') documentReady.then(reveal);
+        else reveal();
+      } else {
+        app.dataset.modeTransition = 'out';
+        fadeTo(0, motion.modeOut, async () => {
+          const anchor = captureReadingPosition();
+          transitionAnchor = anchor;
+          positioning = true;
+          pinnedAnchor = null;
+          displayedMode = nextMode;
+          if (displayedMode === 'preview') updateDocument();
+          render();
+          if (displayedMode === 'preview') await documentReady;
+          if (revision !== modeRevision) return;
+          restoreReadingPosition(anchor);
+          positioning = false;
+          transitionAnchor = null;
+          app.dataset.modeTransition = 'in';
+          fadeTo(1, motion.modeIn, finish);
+        });
+      }
+    }
+    function sourceSelectionRect() {
+      measureSource();
+      const rect = sourceEditor.getBoundingClientRect();
+      const mirror = sourceMeasure.cloneNode(false);
+      mirror.textContent = sourceEditor.value.slice(0, sourceEditor.selectionEnd);
+      const caret = document.createElement('span');
+      caret.textContent = '\u200b';
+      caret.style.display = 'inline';
+      mirror.append(caret);
+      app.append(mirror);
+      const relative = caret.getBoundingClientRect();
+      const frame = mirror.getBoundingClientRect();
+      const x = rect.left + relative.left - frame.left - sourceEditor.scrollLeft + 1;
+      const y = rect.top + relative.top - frame.top - sourceEditor.scrollTop + 1;
+      const height = relative.height || parseFloat(getComputedStyle(sourceEditor).lineHeight);
+      mirror.remove();
+      const end = clamp(x, rect.left + 12, rect.right - 12);
+      return {
+        left: end,
+        right: end,
+        top: Math.max(rect.top + 12, Math.min(y, rect.bottom - height)),
+        bottom: Math.max(rect.top + height, Math.min(y + height, rect.bottom - 12))
+      };
+    }
+    function previewSelectionEndRect(range) {
+      const terminal = range.cloneRange();
+      const node = range.endContainer;
+      if (node.nodeType === Node.TEXT_NODE && range.endOffset > 0) {
+        const start = node === range.startContainer ? range.startOffset : 0;
+        const text = node.textContent.slice(start, range.endOffset).trimEnd();
+        if (text) {
+          const lastCharacter = Array.from(text).at(-1);
+          terminal.setStart(node, start + text.length - lastCharacter.length);
+          terminal.setEnd(node, start + text.length);
+        }
+      }
+      // Range order is stable for both forward and backward selections.
+      const fragments = Array.from(terminal.getClientRects()).filter(rect => rect.width > 0 && rect.height > 0);
+      const rect = fragments.at(-1) || range.getBoundingClientRect();
+      return { left: rect.right, right: rect.right, top: rect.top, bottom: rect.bottom };
+    }
+    function cloneSelectionWithin(element, range, existingFragment) {
+      if (!range.intersectsNode(element)) return null;
+      const clipped = range.cloneRange();
+      if (range.comparePoint(element, 0) >= 0) clipped.setStart(element, 0);
+      if (range.comparePoint(element, element.childNodes.length) <= 0) clipped.setEnd(element, element.childNodes.length);
+      if (clipped.collapsed) {
+        const parent = element.parentNode;
+        const index = Array.prototype.indexOf.call(parent.childNodes, element);
+        if (range.comparePoint(parent, index) !== 0 || range.comparePoint(parent, index + 1) !== 0) return null;
+      }
+      let content = existingFragment || clipped.cloneContents();
+      let parent = clipped.commonAncestorContainer.nodeType === Node.ELEMENT_NODE ? clipped.commonAncestorContainer : clipped.commonAncestorContainer.parentElement;
+      while (parent && parent !== element && element.contains(parent)) {
+        const wrapper = parent.cloneNode(false);
+        wrapper.append(content);
+        content = wrapper;
+        parent = parent.parentElement;
+      }
+      const sources = Array.from(element.querySelectorAll('table')).filter(table => range.intersectsNode(table));
+      const tables = [...(content.nodeType === Node.ELEMENT_NODE && content.tagName === 'TABLE' ? [content] : []), ...content.querySelectorAll('table')];
+      tables.forEach((table, index) => {
+        if (!sources[index] || table.parentElement?.closest('table')) return;
+        const replacement = cloneSelectedTable(sources[index], range);
+        if (table === content) content = replacement;
+        else table.replaceWith(replacement);
+      });
+      return content;
+    }
+    function cloneSelectedTable(table, range) {
+      const copy = table.cloneNode(false);
+      if (table.caption) {
+        const content = cloneSelectionWithin(table.caption, range);
+        if (content) {
+          const caption = table.caption.cloneNode(false);
+          caption.append(content);
+          copy.append(caption);
+        }
+      }
+      const rows = Array.from(table.rows);
+      const groupEnds = new Map();
+      rows.forEach((row, index) => groupEnds.set(row.parentElement, index + 1));
+      const occupied = [];
+      const selected = [];
+      rows.forEach((row, rowIndex) => {
+        let column = 0;
+        Array.from(row.cells).forEach(cell => {
+          while (occupied[column] > rowIndex) column++;
+          const width = cell.colSpan;
+          const remainingRows = groupEnds.get(row.parentElement) - rowIndex;
+          const height = Math.min(cell.rowSpan || remainingRows, remainingRows);
+          const content = cloneSelectionWithin(cell, range);
+          if (content) selected.push({ cell, content, rowIndex, column, width, height });
+          for (let offset = 0; offset < width; offset++) occupied[column + offset] = rowIndex + height;
+          column += width;
+        });
+      });
+      if (!selected.length) return copy;
+      const firstRow = selected[0].rowIndex;
+      const lastRow = selected.at(-1).rowIndex;
+      const firstColumn = Math.min(...selected.map(cell => cell.column));
+      const lastColumn = Math.max(...selected.map(cell => cell.column + cell.width));
+      const byRow = new Map();
+      selected.forEach(cell => {
+        if (!byRow.has(cell.rowIndex)) byRow.set(cell.rowIndex, []);
+        byRow.get(cell.rowIndex).push(cell);
+      });
+      const groups = new Map();
+      const spans = [];
+      for (let rowIndex = firstRow; rowIndex <= lastRow; rowIndex++) {
+        const sourceRow = rows[rowIndex];
+        const row = sourceRow.cloneNode(false);
+        const sourceGroup = sourceRow.parentElement;
+        if (sourceGroup === table) copy.append(row);
+        else {
+          if (!groups.has(sourceGroup)) {
+            const group = sourceGroup.cloneNode(false);
+            groups.set(sourceGroup, group);
+            copy.append(group);
+          }
+          groups.get(sourceGroup).append(row);
+        }
+        let column = firstColumn;
+        function fillUntil(limit) {
+          while (column < limit) {
+            if (spans[column] > rowIndex) { column++; continue; }
+            const start = column;
+            while (column < limit && !(spans[column] > rowIndex)) column++;
+            // Empty boundary cells preserve column positions without quoting
+            // any unselected text or inventing a header.
+            const blank = document.createElement(sourceGroup.tagName === 'THEAD' ? 'th' : 'td');
+            if (column - start > 1) blank.colSpan = column - start;
+            row.append(blank);
+          }
+        }
+        (byRow.get(rowIndex) || []).forEach(selectedCell => {
+          fillUntil(selectedCell.column);
+          const cell = selectedCell.cell.cloneNode(false);
+          const height = Math.min(selectedCell.height, lastRow - rowIndex + 1);
+          if (height > 1) cell.rowSpan = height;
+          else cell.removeAttribute('rowspan');
+          cell.append(selectedCell.content);
+          row.append(cell);
+          for (let offset = 0; offset < selectedCell.width; offset++) spans[selectedCell.column + offset] = rowIndex + height;
+          column = selectedCell.column + selectedCell.width;
+        });
+        fillUntil(lastColumn);
+      }
+      return copy;
+    }
+    function selectionMarkdown(range) {
+      const fragment = range.cloneContents();
+      const tableSources = new WeakMap();
+      const sources = Array.from(range.commonAncestorContainer.querySelectorAll?.('table') || []).filter(table => range.intersectsNode(table));
+      fragment.querySelectorAll('table').forEach((table, index) => tableSources.set(table, sources[index]));
+      const tick = String.fromCharCode(96);
+      const startElement = range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement;
+      const codeBlock = startElement.closest('pre');
+      if (codeBlock && codeBlock.contains(range.endContainer)) {
+        const language = codeBlock.querySelector('code')?.className.match(/language-([\w+-]+)/)?.[1] || '';
+        const fence = tick.repeat(Math.max(3, ...Array.from(range.toString().matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
+        return fence + language + '\n' + range.toString() + '\n' + fence;
+      }
+      function tableMarkup(table, source = tableSources.get(table)) {
+        const copy = source ? cloneSelectedTable(source, range) : table.cloneNode(true);
+        copy.querySelectorAll('.mdv-math').forEach(element => {
+          element.textContent = element.dataset.mathSource || element.textContent;
+          element.removeAttribute('data-math-source');
+          element.removeAttribute('data-math-rendered');
+        });
+        copy.querySelectorAll('.mdv-mermaid').forEach(element => {
+          element.textContent = element.dataset.diagramSource || element.textContent;
+          element.removeAttribute('data-diagram-source');
+          element.removeAttribute('data-diagram-theme');
+        });
+        copy.querySelectorAll('img[data-source-path]').forEach(image => image.setAttribute('src', image.dataset.sourcePath));
+        [copy, ...copy.querySelectorAll('[data-source-start],[data-source-end]')].forEach(element => {
+          element.removeAttribute('data-source-start');
+          element.removeAttribute('data-source-end');
+        });
+        return '\n\n' + copy.outerHTML + '\n\n';
+      }
+      const cell = startElement.closest('td,th,caption');
+      if (cell && cell.contains(range.endContainer)) {
+        const content = cloneSelectionWithin(cell, range, fragment);
+        return content ? serialize(content).trim() : '';
+      }
+      // cloneContents omits the common ancestor, including an enclosing
+      // superscript/subscript when only its own text has been selected.
+      const script = startElement.closest('sup,sub');
+      if (script && script.contains(range.endContainer)) {
+        const copy = script.cloneNode(false);
+        const content = cloneSelectionWithin(script, range, fragment);
+        if (content) copy.append(content);
+        return serialize(copy).trim();
+      }
+      const table = startElement.closest('table');
+      if (table && table.contains(range.endContainer)) {
+        return tableMarkup(null, table);
+      }
+      function serialize(node) {
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent.replace(/[\\*_{}\[\]<>#$]/g, '\\$&').replaceAll(tick, '\\' + tick);
+        if (node.nodeType !== Node.ELEMENT_NODE) return Array.from(node.childNodes, serialize).join('');
+        if (node.classList.contains('mdv-math')) {
+          const tex = node.dataset.mathSource || node.textContent;
+          return node.dataset.mathDisplay === 'true' ? '\n\n$$\n' + tex + '\n$$\n\n' : '$' + tex + '$';
+        }
+        if (node.classList.contains('mdv-mermaid')) return '\n\n' + tick.repeat(3) + 'mermaid\n' + (node.dataset.diagramSource || node.textContent) + '\n' + tick.repeat(3) + '\n\n';
+        if (node.tagName === 'PRE') {
+          const language = node.querySelector('code')?.className.match(/language-([\w+-]+)/)?.[1] || '';
+          const fence = tick.repeat(Math.max(3, ...Array.from(node.textContent.matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
+          return '\n\n' + fence + language + '\n' + node.textContent.replace(/\n$/, '') + '\n' + fence + '\n\n';
+        }
+        if (node.tagName === 'CODE') return tick + node.textContent + tick;
+        if (node.tagName === 'TABLE') return tableMarkup(node);
+        const content = Array.from(node.childNodes, serialize).join('');
+        if (['STRONG','B'].includes(node.tagName)) return '**' + content + '**';
+        if (['EM','I'].includes(node.tagName)) return '*' + content + '*';
+        if (['DEL','S'].includes(node.tagName)) return '~~' + content + '~~';
+        if (['SUP','SUB'].includes(node.tagName)) {
+          const tag = node.tagName.toLowerCase();
+          return '<' + tag + '>' + content + '</' + tag + '>';
+        }
+        if (node.tagName === 'A') return '[' + content + '](' + node.getAttribute('href') + ')';
+        if (node.tagName === 'IMG') return '![' + (node.getAttribute('alt') || '') + '](' + (node.dataset.sourcePath || node.getAttribute('src')) + ')';
+        if (node.tagName === 'BR') return '  \n';
+        if (node.tagName === 'LI') return '- ' + content.trim() + '\n';
+        if (['P','DIV','UL','OL','BLOCKQUOTE'].includes(node.tagName)) return '\n\n' + content.trim() + '\n\n';
+        if (/^H[1-6]$/.test(node.tagName)) return '\n\n' + '#'.repeat(Number(node.tagName.slice(1))) + ' ' + content.trim() + '\n\n';
+        return content;
+      }
+      return serialize(fragment).trim();
+    }
+    function readSelection() {
+      if (displayedMode === 'source' && document.activeElement === sourceEditor && sourceEditor.selectionStart !== sourceEditor.selectionEnd) {
+        const start = sourceEditor.selectionStart;
+        const end = sourceEditor.selectionEnd;
+        selection = sourceEditor.value.slice(start, end);
+        const first = sourceEditor.value.slice(0, start).split('\n').length;
+        const last = sourceEditor.value.slice(0, end).split('\n').length;
+        const location = first === last ? '源码 · 第 ' + first + ' 行' : '源码 · 第 ' + first + '–' + last + ' 行';
+        const rect = sourceSelectionRect();
+        let markdown = selection;
+        const offsets = [0];
+        sourceEditor.value.split('\n').forEach(line => offsets.push(offsets.at(-1) + line.length + 1));
+        const codeBlock = markdownRenderer.parse(sourceEditor.value, {}).find(token => token.type === 'fence' && token.map && start >= offsets[token.map[0] + 1] && end <= (offsets[token.map[1] - 1] ?? sourceEditor.value.length));
+        if (codeBlock) {
+          const tick = String.fromCharCode(96);
+          const fence = tick.repeat(Math.max(3, ...Array.from(selection.matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
+          markdown = fence + codeBlock.info.trim().split(/\s/)[0] + '\n' + selection + '\n' + fence;
+        }
+        selectionAttachment = { text: selection, markdown, mode: 'source', start, end, location, rect };
+        return rect;
+      }
+      const selected = window.getSelection();
+      const text = selected?.toString().trim();
+      if (displayedMode === 'preview' && text && selected.rangeCount && selected.anchorNode && selected.focusNode && reader.contains(selected.anchorNode) && reader.contains(selected.focusNode)) {
+        selection = text;
+        const range = selected.getRangeAt(0);
+        const block = (selected.anchorNode.nodeType === Node.ELEMENT_NODE ? selected.anchorNode : selected.anchorNode.parentElement)?.closest('[data-source-start]');
+        const location = block ? '原文 · 第 ' + (Number(block.dataset.sourceStart) + 1) + ' 行' : '所选内容';
+        const rect = previewSelectionEndRect(range);
+        selectionAttachment = { text, markdown: selectionMarkdown(range), mode: 'preview', location, rect };
+        return rect;
+      }
+      selection = '';
+      selectionAttachment = null;
+      return null;
+    }
+    document.addEventListener('selectionchange', readSelection);
+    document.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || event.ctrlKey) return;
+      if (state.outline && matchMedia('(max-width: 560px)').matches && !outline.contains(event.target)) {
+        state.outline = false;
+        render();
+      }
+    });
+
+    app.addEventListener('click', event => {
+      const contentLink = event.target.closest('.mdv-article a[href^="#"]');
+      if (contentLink) {
+        let target;
+        try { target = document.getElementById(decodeURIComponent(contentLink.getAttribute('href').slice(1))); }
+        catch { return; }
+        if (target && reader.contains(target)) {
+          event.preventDefault();
+          pinnedAnchor = null;
+          target.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
+        }
+        return;
+      }
+      const targetLink = event.target.closest('[data-toc-target]');
+      if (targetLink && app.contains(targetLink)) {
+        event.preventDefault();
+        outlineFollowPaused = false;
+        if (matchMedia('(max-width: 560px)').matches) state.outline = false;
+        render();
+        markHeading(targetLink.dataset.tocTarget);
+        keepCurrentHeadingVisible();
+        jumpUntil = Date.now() + 650;
+        document.getElementById(targetLink.dataset.tocTarget).scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+        return;
+      }
+      const button = event.target.closest('button');
+      if (!button || !app.contains(button)) return;
+      if (button.dataset.collapseHeading) {
+        const branch = document.getElementById(button.dataset.collapseHeading);
+        const expanded = branch.dataset.expanded !== 'true';
+        branch.dataset.expanded = String(expanded);
+        branch.inert = !expanded;
+        branch.setAttribute('aria-hidden', String(!expanded));
+        button.setAttribute('aria-expanded', String(expanded));
+        markHeading(currentHeadingId);
+      }
+      render();
+
+    });
+    render();
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { documentReady = enhanceDocument(); });
+    requestAnimationFrame(() => { app.dataset.ready = 'true'; postNative({type:'ready'}); });
+    window.lucide.createIcons();
+    let scrollQueued = false;
+    window.addEventListener('scroll', () => {
+      if (scrollQueued || reader.hidden || !app.getClientRects().length || Date.now() < jumpUntil) return;
+      scrollQueued = true;
+      requestAnimationFrame(() => {
+        const current = currentReadingHeading();
+        if (current) markHeading(current.id);
+        scrollQueued = false;
+      });
+    }, { passive: true });
+  });
+})();

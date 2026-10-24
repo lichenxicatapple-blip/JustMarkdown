@@ -1,0 +1,19 @@
+<aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI 对话" hidden>
+  <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
+  <header class="mdv-agent-header">
+    <h2>AI</h2>
+    <button type="button" data-agent-action="collapse" class="cursor-interaction" aria-label="收起对话"><i data-lucide="chevron-right" aria-hidden="true"></i></button>
+  </header>
+  <div class="mdv-agent-scroll" role="region" aria-label="对话内容">
+    <div class="mdv-conversation" data-component="ConversationThread" aria-label="多轮问答"></div>
+  </div>
+  <form class="mdv-composer" data-component="ConversationComposer">
+    <div class="mdv-composer-reference" data-component="ContextAttachment" hidden></div>
+    <label class="mdv-sr-only" for="mdv-question-input">提问或继续追问</label>
+    <textarea id="mdv-question-input" class="mdv-agent-input" aria-label="提问或继续追问" rows="1" spellcheck="false" enterkeyhint="enter"></textarea>
+    <div class="mdv-composer-footer">
+      <button type="submit" class="mdv-agent-send cursor-interaction" aria-label="发送问题" disabled><i data-lucide="arrow-up" aria-hidden="true"></i></button>
+    </div>
+  </form>
+  <p class="mdv-agent-announcement mdv-sr-only" role="status" aria-live="polite"></p>
+</aside>

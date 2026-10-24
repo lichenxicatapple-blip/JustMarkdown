@@ -1,0 +1,8 @@
+{
+  "name": "JustMarkdown",
+  "status": "Approved JustMarkdown name and taller-d ligature; formal vector and native icon maintained in production/.",
+  "approvedRaster": "approved-reference.png",
+  "vectorMaster": "production/mark.svg",
+  "nativeIcon": "production/JustMarkdown.icon",
+  "minimumOS": "iOS/iPadOS 26"
+}

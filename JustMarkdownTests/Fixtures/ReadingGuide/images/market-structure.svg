@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="164" viewBox="0 0 640 164" role="img" aria-label="资金供给方经由证券市场连接资金需求方">
+  <style>
+    :root { color-scheme: light dark; }
+    .canvas { fill: light-dark(#f6f7f9, #262a30); }
+    .node { fill: light-dark(#ffffff, #1c1f23); stroke: light-dark(#e5e6eb, #3d424c); }
+    .arrow { stroke: light-dark(#646a73, #a6adb9); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    text { fill: light-dark(#1f2329, #e4e7ed); font: 18px -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif; text-anchor: middle; }
+  </style>
+  <rect class="canvas" width="640" height="164" rx="14"/>
+  <rect class="node" x="24" y="40" width="156" height="84" rx="9"/>
+  <rect class="node" x="242" y="40" width="156" height="84" rx="9"/>
+  <rect class="node" x="460" y="40" width="156" height="84" rx="9"/>
+  <path class="arrow" d="M198 82h26m-7-7 7 7-7 7M416 82h26m-7-7 7 7-7 7"/>
+  <text x="102" y="77">资金<tspan x="102" dy="26">供给方</tspan></text>
+  <text x="320" y="77">证券<tspan x="320" dy="26">市场</tspan></text>
+  <text x="538" y="77">资金<tspan x="538" dy="26">需求方</tspan></text>
+</svg>

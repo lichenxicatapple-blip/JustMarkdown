@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="310" viewBox="0 0 880 310" role="img" aria-labelledby="title desc">
+  <title id="title">笔记之间的联系</title>
+  <desc id="desc">阅读中的问题、实践中的观察与思考中的理解，通过共同主题相互联系。</desc>
+  <rect width="880" height="310" rx="20" fill="#f6f7f9"/>
+  <g fill="none" stroke="#b8c7df" stroke-width="2">
+    <path d="M286 157 C350 157 342 102 401 102"/>
+    <path d="M286 157 C350 157 342 226 401 226"/>
+    <path d="M611 102 C660 102 654 157 689 157"/>
+    <path d="M611 226 C660 226 654 157 689 157"/>
+  </g>
+  <g fill="#fff" stroke="#e1e5eb">
+    <rect x="42" y="113" width="244" height="88" rx="13"/>
+    <rect x="401" y="62" width="210" height="80" rx="13"/>
+    <rect x="401" y="186" width="210" height="80" rx="13"/>
+  </g>
+  <circle cx="743" cy="157" r="54" fill="#e9eff9"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif">
+    <g fill="#788393" font-size="14">
+      <text x="62" y="141">阅读</text>
+      <text x="420" y="89">实践</text>
+      <text x="420" y="213">思考</text>
+    </g>
+    <g fill="#28364a" font-size="18" font-weight="500">
+      <text x="62" y="174">如何提出好问题</text>
+      <text x="420" y="120">一次搜索失败的原因</text>
+      <text x="420" y="244">从线索到理解</text>
+    </g>
+    <g fill="#3c5f93" font-size="17" text-anchor="middle">
+      <text x="743" y="153">共同主题</text>
+      <text x="743" y="178" font-size="14">理解需求</text>
+    </g>
+  </g>
+</svg>

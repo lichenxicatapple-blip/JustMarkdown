@@ -1,0 +1,141 @@
+/* Agent surfaces reuse the reader's semantic palette, typography and rich text. */
+@property --mdv-reference-scroll-thumb { syntax: "<color>"; inherits: true; initial-value: transparent; }
+#mdv-reading-concept .mdv-app { --mdv-agent-content-inset: var(--mdv-agent-inset); --mdv-composer-text-inset: calc(var(--mdv-agent-content-inset) - var(--mdv-composer-margin) - 1px); }
+html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden; overscroll-behavior: none; scrollbar-gutter: auto; }
+#mdv-reading-concept .mdv-app button > svg { stroke-width: 1.75; }
+#mdv-reading-concept .mdv-agent {
+  position: fixed;
+  z-index: 12;
+  inset: 16px 16px 16px auto;
+  width: var(--mdv-agent-width);
+  min-width: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--mdv-line);
+  border-radius: 16px;
+  background: var(--mdv-paper);
+  box-shadow: 0 8px 28px var(--mdv-shadow);
+}
+#mdv-reading-concept .mdv-workspace { grid-template-columns: minmax(0, 1fr) 0px; transition: grid-template-columns var(--mdv-duration-agentPanel) var(--mdv-ease-agentPanel); }
+#mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr) var(--mdv-agent-width); }
+#mdv-reading-concept .mdv-agent-grabber { display: none; }
+#mdv-reading-concept .mdv-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex: 0 0 auto; padding: 8px 12px 8px 24px; margin: 0; border-bottom: 1px solid var(--mdv-line); }
+#mdv-reading-concept .mdv-agent-header h2 { font-size: 16px; font-weight: 500; line-height: 1.5; margin: 0; }
+#mdv-reading-concept .mdv-agent-header button { color: var(--mdv-muted); flex: 0 0 auto; }
+#mdv-reading-concept .mdv-agent-scroll { overflow: auto; overscroll-behavior: contain; overflow-anchor: none; flex: 1; min-height: 0; padding: 24px var(--mdv-agent-inset); scrollbar-width: thin; }
+#mdv-reading-concept .mdv-conversation { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+#mdv-reading-concept .mdv-turn { min-width: 0; }
+#mdv-reading-concept .mdv-user-turn { margin-left: 24px; background: var(--mdv-chrome); border-radius: 14px 14px 4px 14px; padding: 14px 16px; }
+#mdv-reading-concept .mdv-assistant-turn { padding: 0; }
+#mdv-reading-concept .mdv-rich-text { min-width: 0; font-size: var(--mdv-agent-text-size); line-height: var(--mdv-agent-leading); overflow-wrap: anywhere; }
+#mdv-reading-concept .mdv-rich-text > :first-child { margin-top: 0; }
+#mdv-reading-concept .mdv-rich-text > :last-child { margin-bottom: 0; }
+#mdv-reading-concept .mdv-response-block { display: flow-root; }
+#mdv-reading-concept .mdv-response-block > :first-child { margin-top: 0; }
+#mdv-reading-concept .mdv-rich-text :is(h1,h2,h3,h4,h5,h6) { font-size: 16px; line-height: 1.6; margin: 20px 0 10px; letter-spacing: 0; }
+#mdv-reading-concept .mdv-rich-text p { margin-bottom: 12px; }
+#mdv-reading-concept .mdv-rich-text pre { padding: 12px; font-size: 12px; line-height: 1.75; border-radius: 8px; margin: 14px 0; }
+#mdv-reading-concept .mdv-rich-text :is(td,th) { min-width: 72px; padding: 8px 10px; font-size: 13px; }
+#mdv-reading-concept .mdv-rich-text :is(ul,ol) { padding-left: 22px; }
+#mdv-reading-concept .mdv-rich-text :is(.mdv-mermaid,.mdv-math[data-math-display="true"]) { margin: 14px 0; }
+#mdv-reading-concept .mdv-rich-text .katex { font-size: 1.08em; }
+#mdv-reading-concept .mdv-message-reference { margin: 0 0 12px; border-left: 2px solid var(--mdv-line); padding-left: 10px; }
+#mdv-reading-concept .mdv-message-reference > summary { list-style: none; display: flex; align-items: flex-start; gap: 6px; color: var(--mdv-muted); font-size: 12px; line-height: var(--mdv-reference-leading); min-height: 28px; }
+#mdv-reading-concept .mdv-message-reference > summary::-webkit-details-marker { display: none; }
+#mdv-reading-concept .mdv-message-reference > summary svg { --icon-size: 13px; width: 13px; height: 13px; translate: 0 calc((var(--mdv-reference-leading) - 13px) / 2); flex: 0 0 auto; stroke-width: 1.75; }
+#mdv-reading-concept .mdv-message-reference > summary span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; min-width: 0; }
+#mdv-reading-concept .mdv-message-reference > .mdv-rich-text { padding-top: 10px; font-size: 13px; }
+#mdv-reading-concept .mdv-message-reference[open] > summary svg { transform: rotate(90deg); }
+#mdv-reading-concept .mdv-message-reference > summary svg { transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
+#mdv-reading-concept .mdv-composer { position: relative; flex: 0 0 auto; margin: 0 var(--mdv-composer-margin) var(--mdv-composer-margin); border: 1px solid var(--mdv-line); border-radius: 16px; background: var(--mdv-paper); box-shadow: 0 2px 8px var(--mdv-shadow); overflow: hidden; }
+#mdv-reading-concept .mdv-app .mdv-agent-input { display: block; width: 100%; min-height: 52px; max-height: 160px; border: 0; border-radius: 0; resize: none; outline-offset: -3px; padding: 12px var(--mdv-composer-text-inset) 4px; margin: 0; background: transparent; color: var(--mdv-ink); font: 16px/1.65 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+#mdv-reading-concept .mdv-composer:has(.mdv-agent-input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--mdv-accent) 65%, transparent); outline-offset: 2px; }
+#mdv-reading-concept .mdv-agent-input:focus-visible { outline: none; }
+#mdv-reading-concept .mdv-composer-footer { position: relative; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 0 8px 6px var(--mdv-composer-text-inset); }
+#mdv-reading-concept .mdv-app .mdv-use-document { padding: 4px 0; margin-right: auto; color: var(--mdv-muted); font-size: 12px; }
+#mdv-reading-concept .mdv-use-document svg { width: 14px; height: 14px; }
+#mdv-reading-concept .mdv-app .mdv-agent-send { border-radius: 50%; background: var(--mdv-ink); color: var(--mdv-paper); width: var(--mdv-hit-target); height: var(--mdv-hit-target); padding: 11px; }
+#mdv-reading-concept .mdv-app .mdv-agent-send:hover { background: var(--mdv-muted); }
+#mdv-reading-concept .mdv-agent-send:disabled { opacity: .25; }
+#mdv-reading-concept .mdv-agent-send svg { width: 19px; height: 19px; }
+#mdv-reading-concept .mdv-composer-reference { border-bottom: 1px solid var(--mdv-line); }
+#mdv-reading-concept .mdv-reference-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--mdv-hit-target); align-items: start; padding: 4px 8px 4px var(--mdv-composer-text-inset); }
+#mdv-reading-concept .mdv-app .mdv-reference-toggle { display: grid; grid-template-columns: 16px minmax(0, 1fr) 14px; align-items: center; padding: 12px 0; gap: 8px; min-width: 0; text-align: left; border-radius: 8px; }
+#mdv-reading-concept .mdv-reference-toggle > svg { --icon-size: 16px; width: 16px; height: 16px; color: var(--mdv-muted); }
+#mdv-reading-concept .mdv-reference-toggle > svg:last-child { --icon-size: 14px; width: 14px; height: 14px; transition: transform var(--mdv-duration-reference) var(--mdv-ease-reference); }
+#mdv-reading-concept .mdv-reference-toggle[aria-expanded="true"] > svg:last-child { transform: rotate(180deg); }
+#mdv-reading-concept .mdv-reference-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: var(--mdv-reference-leading); color: var(--mdv-ink); }
+#mdv-reading-concept .mdv-reference-body { --mdv-reference-scroll-thumb: transparent; max-height: 200px; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--mdv-reference-scroll-thumb) transparent; transition: --mdv-reference-scroll-thumb var(--mdv-duration-material) var(--mdv-ease-material); }
+#mdv-reading-concept .mdv-reference-body:is([data-scrolling],:focus-visible) { --mdv-reference-scroll-thumb: color-mix(in srgb, var(--mdv-muted) 45%, transparent); }
+@media (hover: hover) {
+#mdv-reading-concept .mdv-reference-body:hover { --mdv-reference-scroll-thumb: color-mix(in srgb, var(--mdv-muted) 45%, transparent); }
+
+}
+@supports selector(::-webkit-scrollbar) {
+#mdv-reading-concept .mdv-reference-body { scrollbar-width: auto; scrollbar-color: auto; }
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar { width: 4px; height: 4px; }
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar-track,
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar-corner { background: transparent; }
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar-thumb { background: var(--mdv-reference-scroll-thumb); border-radius: 4px; }
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+
+}
+@media (forced-colors: active) {
+#mdv-reading-concept .mdv-reference-body { scrollbar-color: auto; }
+#mdv-reading-concept .mdv-reference-body::-webkit-scrollbar-thumb { background: CanvasText; }
+
+}
+#mdv-reading-concept .mdv-reference-body > .mdv-rich-text { padding: 10px 14px 14px; font-size: 13px; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] { display: block; }
+#mdv-reading-concept .mdv-reference-icon { display: grid; place-items: center; float: inline-start; width: 16px; height: var(--mdv-reference-leading); margin-inline-end: 8px; color: var(--mdv-muted); }
+#mdv-reading-concept .mdv-reference-icon > svg { --icon-size: 16px; width: 16px; height: 16px; stroke-width: 1.75; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-reference-body { min-width: 0; max-height: min(var(--mdv-reference-height), 32dvh); scrollbar-gutter: stable; margin-inline-end: calc(var(--mdv-reference-gutter, 0px) * -1); }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text { display: flow-root; padding: 12px 0 0; line-height: var(--mdv-reference-leading); }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text::after { content: ""; display: block; height: 12px; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text > :nth-child(3) { margin-top: 0; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text > .mdv-reference-remove { float: inline-end; margin-block-start: -12px; margin-inline-start: 8px; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text > :is(pre,table,blockquote,ul,ol,details,.mdv-math[data-math-display="true"],.mdv-mermaid) { clear: both; }
+#mdv-reading-concept .mdv-reference-row[data-scope="selection"] .mdv-rich-text :is(h1,h2,h3,h4,h5,h6) { font-size: 14px; line-height: var(--mdv-reference-leading); }
+#mdv-reading-concept .mdv-reference-remove { color: var(--mdv-muted); }
+#mdv-reading-concept .mdv-reference-remove svg { --icon-size: 16px; width: 16px; height: 16px; }
+#mdv-reading-concept .mdv-agent-scrim { position: fixed; z-index: 11; inset: 0; background: color-mix(in srgb, var(--mdv-modal-scrim) 55%, transparent); }
+#mdv-reading-concept .mdv-agent-pending { color: var(--mdv-muted); font-size: 13px; display: flex; gap: 8px; align-items: center; min-height: 28px; }
+#mdv-reading-concept .mdv-agent-pending::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .5; animation: mdv-breathe 1.4s ease-in-out infinite alternate; }
+#mdv-reading-concept .mdv-turn-status { font-size: 12px; line-height: 1.6; margin: 12px 0 0; color: var(--mdv-muted); }
+#mdv-reading-concept .mdv-request-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: var(--mdv-hit-target); }
+#mdv-reading-concept .mdv-request-status > p { flex: 1; min-width: 0; margin: 0; color: var(--mdv-muted); font-size: 13px; line-height: 20px; }
+#mdv-reading-concept .mdv-app .mdv-request-status > button { flex: 0 0 auto; padding: 0 8px; color: var(--mdv-accent); font-size: 13px; white-space: nowrap; }
+#mdv-reading-concept .mdv-request-status > button:disabled { color: var(--mdv-muted); opacity: .5; }
+#mdv-reading-concept .mdv-proposal { margin-top: 16px; border: 1px solid var(--mdv-line); border-radius: 12px; overflow: hidden; }
+#mdv-reading-concept .mdv-proposal-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 14px; font-size: 13px; font-weight: 500; }
+#mdv-reading-concept .mdv-diff { margin: 0; font: 12px/1.75 ui-monospace, "SFMono-Regular", Menlo, monospace; overflow: auto; max-height: 260px; background: var(--mdv-source); tab-size: 4; }
+#mdv-reading-concept .mdv-diff-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; padding: 3px 12px; }
+#mdv-reading-concept .mdv-diff-line[data-change="remove"] { background: var(--mdv-diff-remove); }
+#mdv-reading-concept .mdv-diff-line[data-change="insert"] { background: var(--mdv-diff-insert); }
+#mdv-reading-concept .mdv-proposal-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; padding: 6px 8px; gap: 4px; }
+#mdv-reading-concept .mdv-proposal-actions button:disabled { opacity: .35; }
+#mdv-reading-concept .mdv-proposal-note { margin: 0; padding: 0 14px 12px; font-size: 12px; line-height: 1.65; color: var(--mdv-muted); }
+#mdv-reading-concept .mdv-source-editor[data-agent-applied] { animation: mdv-edit-feedback var(--mdv-duration-editFeedback) var(--mdv-ease-editFeedback); }
+#mdv-reading-concept .mdv-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@keyframes mdv-breathe { from { opacity: .3; } to { opacity: .8; } }
+@keyframes mdv-edit-feedback { from { box-shadow: inset 0 0 0 2px var(--mdv-accent); } to { box-shadow: inset 0 0 0 0 transparent; } }
+@media (max-width: 899px) {
+#mdv-reading-concept .mdv-app { --mdv-agent-content-inset: 20px; }
+#mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }
+#mdv-reading-concept .mdv-agent { inset: auto 0 0; width: 100%; height: var(--mdv-agent-sheet-height); max-height: calc(100dvh - 24px); border: 0; border-top: 1px solid var(--mdv-line); border-radius: 20px 20px 0 0; box-shadow: 0 -8px 40px var(--mdv-shadow); }
+#mdv-reading-concept .mdv-agent-grabber { display: grid; place-items: center; flex: 0 0 auto; height: 18px; touch-action: none; }
+#mdv-reading-concept .mdv-agent-grabber span { width: 32px; height: 4px; background: var(--mdv-line); border-radius: 3px; }
+#mdv-reading-concept .mdv-agent-header { padding: 0 12px 10px 20px; }
+#mdv-reading-concept .mdv-agent-scroll { padding: 20px; }
+#mdv-reading-concept .mdv-composer { margin-bottom: max(12px, env(safe-area-inset-bottom)); }
+#mdv-reading-concept .mdv-user-turn { margin-left: 16px; }
+
+}
+@media (prefers-reduced-motion: reduce) {
+#mdv-reading-concept .mdv-agent-pending::before { animation: none; }
+#mdv-reading-concept .mdv-reference-body { transition: none; }
+
+}
+

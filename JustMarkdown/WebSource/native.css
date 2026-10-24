@@ -1,0 +1,27 @@
+html,
+body { margin: 0; padding: 0; width: 100%; min-height: 100%; color-scheme: light dark; -webkit-text-size-adjust: 100%; }
+body { background: light-dark(#fff, #1c1f23); font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+html:has(#mdv-reading-concept) { scrollbar-gutter: auto; }
+#mdv-reading-concept { padding: 0; }
+#mdv-reading-concept .mdv-app { border: 0; border-radius: 0; min-height: 100dvh; }
+#mdv-reading-concept .mdv-outline { border-radius: 0; }
+#mdv-reading-concept .mdv-article { font-size: calc(16px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-article h1 { font-size: calc(25px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-article h2 { font-size: calc(18px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-article :is(h3,h4,h5,h6) { font-size: calc(16px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-outline-row a,
+#mdv-reading-concept .mdv-outline-header { font-size: calc(13px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-source-editor { font-size: calc(14px * var(--jm-font-scale, 1)); padding-bottom: 88px; }
+#mdv-reading-concept .mdv-outline-row > button svg { width: 14px; height: 14px; transform: rotate(90deg); transition: transform var(--mdv-duration-disclosure) var(--mdv-ease-disclosure); }
+#mdv-reading-concept .mdv-outline-row > button[aria-expanded="false"] svg { transform: rotate(0); }
+#mdv-reading-concept .jm-local-image-error { min-width: 120px; min-height: 44px; }
+@media (prefers-reduced-motion: reduce) {
+#mdv-reading-concept *,
+#mdv-reading-concept *::before { animation-duration: 0s !important; transition-duration: 0s !important; scroll-behavior: auto !important; }
+ }
+#mdv-reading-concept .mdv-app { --mdv-agent-text-size: calc(15px * var(--jm-font-scale, 1)); }
+#mdv-reading-concept .mdv-app .mdv-agent-input { font-size: calc(16px * var(--jm-font-scale, 1)); }
+
+
+#mdv-reading-concept .mdv-outline-header { min-height: var(--mdv-hit-target); }
+#mdv-reading-concept .mdv-outline-header > span { grid-column: 2; }

@@ -1,0 +1,89 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+
+jobs:
+  checks:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Scan the working tree for credentials
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              gitleaks_asset=darwin_arm64
+              gitleaks_digest=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+              ;;
+            x86_64)
+              gitleaks_asset=darwin_x64
+              gitleaks_digest=dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
+              ;;
+            *) exit 1 ;;
+          esac
+          gitleaks_archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_${gitleaks_asset}.tar.gz" \
+            --output "$gitleaks_archive"
+          printf '%s  %s\n' "$gitleaks_digest" "$gitleaks_archive" | shasum -a 256 --check
+          tar -xzf "$gitleaks_archive" -C "$RUNNER_TEMP" gitleaks
+          "$RUNNER_TEMP/gitleaks" dir . --no-banner --redact=100
+      - name: Check offline resources and project files
+        run: |
+          python3 scripts/build_native_web.py --check
+          python3 -m compileall -q scripts
+          plutil -lint JustMarkdown/Info.plist JustMarkdown/PrivacyInfo.xcprivacy JustMarkdown.xcodeproj/project.pbxproj
+          xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests
+      - name: Check Python tooling
+        run: |
+          python3 -m venv "$RUNNER_TEMP/python-tools"
+          "$RUNNER_TEMP/python-tools/bin/pip" install ruff==0.14.14
+          "$RUNNER_TEMP/python-tools/bin/ruff" check scripts
+          "$RUNNER_TEMP/python-tools/bin/ruff" format --check scripts
+      - name: Compile iPhoneOS Release
+        run: >-
+          xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
+          -configuration Release -destination 'generic/platform=iOS'
+          -derivedDataPath "$RUNNER_TEMP/Release" CODE_SIGNING_ALLOWED=NO build
+
+  simulators:
+    needs: checks
+    runs-on: macos-26
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        family: [iPhone, iPad]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run isolated native tests
+        env:
+          FAMILY: ${{ matrix.family }}
+        run: python3 scripts/verify_ios.py --family "$FAMILY" --output "$RUNNER_TEMP/native-tests"
+      - name: Retain failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-failure-${{ matrix.family }}
+          path: |
+            ${{ runner.temp }}/native-tests/*.log
+            ${{ runner.temp }}/native-tests/*.xcresult
+            ${{ runner.temp }}/native-tests/results.json
+          retention-days: 7

@@ -1,0 +1,204 @@
+import CryptoKit
+import Foundation
+
+struct AgentTextEdit: Codable, Sendable, Equatable {
+    let before: String
+    let after: String
+}
+
+struct AgentDocumentChange: Codable, Sendable {
+    let id: String
+    let edits: [AgentTextEdit]
+    let saved: Bool?
+}
+
+struct AgentToolExecution: Sendable {
+    let output: String
+    var change: AgentDocumentChange?
+    var revision: String?
+}
+
+@MainActor
+final class AgentDocumentTools {
+    private weak var session: ReaderSession?
+    private struct UndoRecord {
+        let token: String
+        let before: String
+        let after: String
+    }
+    private var undoRecords: [String: UndoRecord] = [:]
+    private var executing = false
+
+    init(session: ReaderSession) { self.session = session }
+
+    nonisolated static func revision(_ text: String) -> String {
+        SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated static let definitions = [
+        ModelTool(
+            name: "read_document", description: "读取当前打开文档的最新 Markdown 源码和版本。没有路径参数，不能读取其他文件。",
+            parameters: #"{"type":"object","properties":{},"required":[],"additionalProperties":false}"#),
+        ModelTool(
+            name: "edit_document",
+            description:
+                "按用户明确的编辑要求修改当前文档。一次提交同一版本中所有互不重叠的修改。before 必须是唯一、逐字一致的原文，after 为完整替换文本。插入内容需保留原文锚点；仅空文档可用空 before。成功即写回文件，无须另行请求应用。",
+            parameters:
+                #"{"type":"object","properties":{"revision":{"type":"string","description":"最新源码的 revision；内容变化后须重新读取。"},"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"before":{"type":"string"},"after":{"type":"string"}},"required":["before","after"],"additionalProperties":false}}},"required":["revision","edits"],"additionalProperties":false}"#
+        ),
+    ]
+
+    func reset() { undoRecords.removeAll() }
+
+    func execute(
+        _ call: ModelToolCall, token: String,
+        onChange: @MainActor (AgentDocumentChange) async -> Void = { _ in }
+    ) async -> AgentToolExecution {
+        guard !executing else { return result(["error": "document_busy"]) }
+        executing = true
+        defer { executing = false }
+        do {
+            try Task.checkCancellation()
+            guard let session, session.documentToken == token, session.document != nil,
+                !session.isClosingDocument
+            else { return result(["error": "document_closed"]) }
+            guard session.mode == "source" else { return result(["error": "read_only", "message": "请切换到源码后修改。"]) }
+            let current = try await currentText(session, token: token)
+            switch call.name {
+            case "read_document":
+                guard try ModelWireFormat.object(Data(call.arguments.utf8)).isEmpty else {
+                    return result(["error": "invalid_arguments"])
+                }
+                return result(["revision": Self.revision(current), "content": current])
+            case "edit_document":
+                struct Arguments: Decodable {
+                    let revision: String
+                    let edits: [AgentTextEdit]
+                }
+                let object = try ModelWireFormat.object(Data(call.arguments.utf8))
+                guard Set(object.keys) == ["revision", "edits"],
+                    let edits = object["edits"] as? [[String: Any]],
+                    edits.allSatisfy({ Set($0.keys) == ["before", "after"] })
+                else { return result(["error": "invalid_arguments"]) }
+                let args = try JSONDecoder().decode(Arguments.self, from: Data(call.arguments.utf8))
+                guard args.revision == Self.revision(current) else {
+                    return result(["error": "stale_document", "message": "文档已变化，请重新读取后再决定修改。"])
+                }
+                let planned = try Self.plan(args.edits, in: current)
+                let next = planned.reduce(current) { text, edit in
+                    (text as NSString).replacingCharacters(in: edit.range, with: edit.after)
+                }
+                guard next != current else {
+                    return result(["status": "unchanged", "revision": Self.revision(current)])
+                }
+                let id = UUID().uuidString.lowercased()
+                try Task.checkCancellation()
+                guard try await replace(session, expected: current, next: next, id: id, token: token) else {
+                    return result(["error": "stale_document", "message": "原文已变化，未执行这次修改。"])
+                }
+                undoRecords[id] = UndoRecord(token: token, before: current, after: next)
+                await onChange(AgentDocumentChange(id: id, edits: args.edits, saved: nil))
+                let saved = await save(session, token: token)
+                var execution = result([
+                    "status": saved ? "saved" : "edited_save_failed", "revision": Self.revision(next),
+                    "message": saved ? "修改已写回当前文件。" : "内容已修改，保存失败；不得声称已保存，也不要重复执行同一修改。",
+                ])
+                execution.change = AgentDocumentChange(id: id, edits: args.edits, saved: saved)
+                return execution
+            default: return result(["error": "unknown_tool"])
+            }
+        } catch {
+            return result(["error": "invalid_edit", "message": "原文必须逐字匹配、唯一且互不重叠；未执行这次修改。"])
+        }
+    }
+
+    func undo(_ id: String, token: String) async -> [String: String] {
+        guard !executing else { return ["error": "busy", "message": "文档正在保存，请稍后重试。"] }
+        executing = true
+        defer { executing = false }
+        do {
+            guard let session, let record = undoRecords[id], record.token == token,
+                session.documentToken == token, !session.isClosingDocument
+            else { return ["error": "stale", "message": "这次修改已不可撤销。"] }
+            guard session.mode == "source" else { return ["error": "read_only", "message": "请切换到源码后撤销。"] }
+            let current = try await currentText(session, token: token)
+            guard current == record.after else { return ["error": "stale", "message": "原文已有其他编辑，无法撤销这次修改。"] }
+            if let bridge = session.bridge {
+                guard
+                    try await bridge.call("historyAction", arguments: ["payload": ["action": "undo", "id": id]])
+                        as? Bool == true
+                else {
+                    return ["error": "stale", "message": "请先撤销后续编辑，再撤销这次修改。"]
+                }
+            }
+            session.sourceChanged(record.before, token: token)
+            let saved = await save(session, token: token)
+            return ["status": "undone", "saved": saved ? "true" : "false"]
+        } catch { return ["error": "stale", "message": "原文已变化，无法撤销这次修改。"] }
+    }
+
+    private func currentText(_ session: ReaderSession, token: String) async throws -> String {
+        let text = try await session.bridge?.call("flushSource") as? String ?? session.document?.text
+        guard session.documentToken == token, let text, session.document != nil, !session.isClosingDocument else {
+            throw ModelError.invalidResponse
+        }
+        session.sourceChanged(text, token: token)
+        return text
+    }
+
+    private func replace(_ session: ReaderSession, expected: String, next: String, id: String, token: String)
+        async throws -> Bool
+    {
+        guard session.documentToken == token, session.mode == "source", !session.isClosingDocument else { return false }
+        if let bridge = session.bridge {
+            let applied =
+                try await bridge.call(
+                    "applyDocumentEdit", arguments: ["payload": ["before": expected, "after": next, "id": id]])
+                as? Bool
+            guard applied == true else { return false }
+        } else if session.document?.text != expected {
+            return false
+        }
+        guard session.documentToken == token else { return false }
+        session.sourceChanged(next, token: token)
+        return true
+    }
+
+    private func save(_ session: ReaderSession, token: String) async -> Bool {
+        await session.flushChanges()
+        return session.documentToken == token && session.document?.hasUnsavedChanges == false
+    }
+
+    private struct Replacement {
+        let range: NSRange
+        let after: String
+    }
+
+    private static func plan(_ edits: [AgentTextEdit], in text: String) throws -> [Replacement] {
+        guard !edits.isEmpty else { throw ModelError.invalidResponse }
+        let original = text as NSString
+        let values = try edits.map { edit -> Replacement in
+            if original.length == 0, edit.before.isEmpty, edits.count == 1 {
+                return Replacement(range: NSRange(location: 0, length: 0), after: edit.after)
+            }
+            guard !edit.before.isEmpty else { throw ModelError.invalidResponse }
+            let first = original.range(of: edit.before, options: .literal)
+            guard first.location != NSNotFound else { throw ModelError.invalidResponse }
+            let rest = NSRange(location: first.location + 1, length: original.length - first.location - 1)
+            guard original.range(of: edit.before, options: .literal, range: rest).location == NSNotFound else {
+                throw ModelError.invalidResponse
+            }
+            return Replacement(range: first, after: edit.after)
+        }.sorted { $0.range.location > $1.range.location }
+        for (later, earlier) in zip(values, values.dropFirst()) {
+            guard NSMaxRange(earlier.range) <= later.range.location else { throw ModelError.invalidResponse }
+        }
+        return values
+    }
+
+    private func result(_ value: [String: Any]) -> AgentToolExecution {
+        let data = (try? JSONSerialization.data(withJSONObject: value, options: .sortedKeys)) ?? Data("{}".utf8)
+        return AgentToolExecution(
+            output: String(decoding: data, as: UTF8.self), revision: session?.document.map { Self.revision($0.text) })
+    }
+}
