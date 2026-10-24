@@ -16,7 +16,7 @@ private enum HomeItem: CaseIterable, Hashable {
 }
 
 struct ReaderScreen: View {
-    private let homeSlogan = ["just markdown.", "pure reading."]
+    private let homeSlogan = ["just markdown,", "pure reading."]
     @ObservedObject var session: ReaderSession
     @State private var modelSettingsPresented = false
     @State private var importing = false

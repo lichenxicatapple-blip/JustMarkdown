@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · English
 
-*just markdown. pure reading.*
+*just markdown, pure reading.*
 
 Read local Markdown documents comfortably on iPhone and iPad.
 
