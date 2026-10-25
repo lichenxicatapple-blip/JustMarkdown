@@ -228,7 +228,7 @@ struct ReaderScreen: View {
                 Text(homeSlogan.joined(separator: " ")).fixedSize()
                 Text(homeSlogan.joined(separator: "\n"))
             }
-            .font(.title2.weight(.medium)).foregroundStyle(.primary)
+            .font(.title2).foregroundStyle(.primary)
             .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(homeSlogan.joined(separator: " "))
