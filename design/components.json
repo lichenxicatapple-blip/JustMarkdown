@@ -303,11 +303,8 @@
       "nativeOwners": [
         "JustMarkdown/PrivacyPolicyView.swift"
       ],
-      "webOwners": [
-        "JustMarkdown/WebSource/privacy.html"
-      ],
       "invariants": [
-        "One quiet homepage entry presents the bundled policy in the App language without reader state, JavaScript or remote resources."
+        "One quiet homepage entry presents the bundled policy with native text, lists, tables and scrolling in the App language."
       ],
       "specification": "design/README.md#首页与最近文档"
     },

@@ -144,7 +144,7 @@ Responses 请求设置 `store:false` 并发送所需历史，不依赖服务器�
 | [品牌母版与配色](../design/brand/README.md) | 统一的系统图标、首页矢量和导出资源 |
 | `vendor/` 中标为 `target: native` 的字体与许可 | Xcode 直接复制到 App 包，`UIAppFonts` 注册首页字体 |
 | `Localizable.xcstrings`、`InfoPlist.xcstrings` | 原生翻译和系统权限文案；同一 UI String Catalog 生成 Web 翻译 |
-| [隐私政策](privacy.md)与 `WebSource/privacy.html` | 固定 Markdown 引擎在构建时生成中英文离线政策页面；独立 WebView 禁用 JavaScript、远程资源和阅读桥接，仅由原生层处理用户点击的外部链接 |
+| [隐私政策](privacy.md) | 构建时复用固定 Markdown 解析器生成 `Resources/Privacy` 中英文结构化内容；SwiftUI 原生文本、列表、表格与滚动容器排版，运行时不使用 WebView 或 Markdown 引擎 |
 | `JustMarkdownTests/Fixtures/ReadingGuide/` | `Resources/Sample/`，仅 Debug 打包 |
 
 `build_native_web.py` 校验 [vendor manifest](../vendor/assets.json) 中固定的依赖摘要，并生成资源；`--check` 比较维护源与生成结果。App 与构建过程不从 CDN 下载运行依赖。组件和图标登记由人工维护，不参与界面代码生成。

@@ -40,10 +40,12 @@ final class ReaderUITests: XCTestCase {
             record("home-privacy-\(language)")
             entry.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 8))
-            let policy = app.webViews["PrivacyPolicyContent"]
+            let policy = app.scrollViews["PrivacyPolicyContent"]
             XCTAssertTrue(policy.staticTexts[firstSection].waitForExistence(timeout: 8))
             XCTAssertFalse(open.isHittable)
-            XCTAssertTrue(policy.links["lichenxi.catapple@gmail.com"].firstMatch.exists)
+            XCTAssertTrue(
+                policy.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "lichenxi.catapple@gmail.com"))
+                    .firstMatch.exists)
             record("privacy-policy-\(language)")
             let last = policy.staticTexts[lastSection]
             for _ in 0..<20 {
@@ -51,6 +53,7 @@ final class ReaderUITests: XCTestCase {
                 policy.swipeUp()
             }
             XCTAssertTrue(last.isHittable, "The complete policy must be readable inside the modal")
+            record("privacy-policy-bottom-\(language)")
             app.buttons["ClosePrivacyPolicy"].tap()
             XCTAssertTrue(open.waitForExistence(timeout: 5))
             XCTAssertTrue(entry.isHittable)
@@ -62,8 +65,8 @@ final class ReaderUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         for (language, locale, title, send, allow, cancel) in [
-            ("zh-Hans", "zh_CN", "允许发送到此 AI 服务？", "发送问题", "允许并发送", "取消"),
-            ("en", "en_US", "Allow Sending to This AI Service?", "Send message", "Allow & Send", "Cancel"),
+            ("zh-Hans", "zh_CN", "允许发送到此 AI 服务？", "发送问题", "允许", "取消"),
+            ("en", "en_US", "Allow Sending to This AI Service?", "Send message", "Allow", "Cancel"),
         ] {
             app.launchArguments = [
                 "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",

@@ -120,8 +120,105 @@ def web_localizations():
     return translations
 
 
-def privacy_pages(package):
-    """Render the canonical bilingual policy with the already pinned Markdown parser."""
+def privacy_runs(token):
+    runs = []
+    strong = False
+    link = None
+    for child in token["children"]:
+        kind = child["type"]
+        if kind == "strong_open":
+            strong = True
+        elif kind == "strong_close":
+            strong = False
+        elif kind == "link_open":
+            link = dict(child["attrs"])["href"]
+        elif kind == "link_close":
+            link = None
+        elif kind in {"text", "softbreak", "hardbreak"}:
+            text = {"softbreak": " ", "hardbreak": "\n"}.get(kind, child["content"])
+            if not text:
+                continue
+            if runs and runs[-1].get("strong", False) == strong and runs[-1].get("link") == link:
+                runs[-1]["text"] += text
+            else:
+                runs.append(
+                    {
+                        "text": text,
+                        **({"strong": True} if strong else {}),
+                        **({"link": link} if link else {}),
+                    }
+                )
+        else:
+            raise ValueError(f"Unsupported privacy inline formatting: {kind}")
+    return runs
+
+
+def privacy_blocks(tokens):
+    """Adapt parser tokens to the small, explicit native policy content model."""
+    tokens = iter(tokens)
+
+    def expect(kind):
+        token = next(tokens)
+        if token["type"] != kind:
+            raise ValueError(f"Expected privacy {kind}, received {token['type']}")
+        return token
+
+    def paragraph():
+        runs = privacy_runs(expect("inline"))
+        expect("paragraph_close")
+        return runs
+
+    blocks = []
+    for token in tokens:
+        kind = token["type"]
+        if kind == "paragraph_open":
+            blocks.append({"kind": "paragraph", "text": paragraph()})
+        elif kind == "heading_open":
+            runs = privacy_runs(expect("inline"))
+            expect("heading_close")
+            blocks.append({"kind": "heading", "text": runs})
+        elif kind == "bullet_list_open":
+            items = []
+            for item in tokens:
+                if item["type"] == "bullet_list_close":
+                    break
+                if item["type"] != "list_item_open":
+                    raise ValueError("Privacy lists must contain paragraph items")
+                expect("paragraph_open")
+                items.append(paragraph())
+                expect("list_item_close")
+            blocks.append({"kind": "list", "items": items})
+        elif kind == "table_open":
+            rows = []
+            for cell in tokens:
+                if cell["type"] == "table_close":
+                    break
+                if cell["type"] == "tr_open":
+                    rows.append([])
+                elif cell["type"] == "inline":
+                    rows[-1].append(privacy_runs(cell))
+                elif cell["type"] not in {
+                    "thead_open",
+                    "thead_close",
+                    "tbody_open",
+                    "tbody_close",
+                    "tr_close",
+                    "th_open",
+                    "th_close",
+                    "td_open",
+                    "td_close",
+                }:
+                    raise ValueError(f"Unsupported privacy table content: {cell['type']}")
+            if not rows or any(len(row) != 2 for row in rows):
+                raise ValueError("Native privacy tables require two columns")
+            blocks.append({"kind": "table", "rows": rows})
+        else:
+            raise ValueError(f"Unsupported privacy block: {kind}")
+    return blocks
+
+
+def privacy_content(destination):
+    """Parse the canonical bilingual policy at build time for native text layout."""
     policy = (ROOT / "docs/privacy.md").read_text()
     _, chinese = policy.split("\n## 中文\n", 1)
     chinese, english = chinese.split("\n## English\n", 1)
@@ -133,7 +230,7 @@ def privacy_pages(package):
             "const md = require(process.argv[1])({ html: false });"
             "const pages = JSON.parse(fs.readFileSync(0, 'utf8'));"
             "process.stdout.write(JSON.stringify(Object.fromEntries("
-            "Object.entries(pages).map(([lang, text]) => [lang, md.render(text.trim())]))));",
+            "Object.entries(pages).map(([lang, text]) => [lang, md.parse(text.trim(), {})]))));",
             str(VENDOR / "markdown-it.js"),
         ],
         input=json.dumps({"zh-Hans": chinese, "en": english}),
@@ -141,11 +238,12 @@ def privacy_pages(package):
         capture_output=True,
         check=True,
     )
-    template = (SOURCE / "privacy.html").read_text()
-    for language, content in json.loads(result.stdout).items():
-        html = replace_once(template, "<!-- policy-language -->", language)
-        html = replace_once(html, "<!-- policy-content -->", content)
-        (package / f"privacy-{language}.html").write_text(html)
+    destination.mkdir()
+    for language, tokens in json.loads(result.stdout).items():
+        content = {"blocks": privacy_blocks(tokens)}
+        (destination / f"{language}.json").write_text(
+            json.dumps(content, ensure_ascii=False, separators=(",", ":")) + "\n"
+        )
 
 
 def generate(destination):
@@ -182,7 +280,7 @@ def generate(destination):
 
     package = destination / "Web"
     package.mkdir()
-    privacy_pages(package)
+    privacy_content(destination / "Privacy")
     (package / "index.html").write_text(html)
     (package / "reader.js").write_text(runtime)
     localization = replace_once(
@@ -234,6 +332,7 @@ def main():
         generate(generated)
         destinations = {
             "Web": DEST,
+            "Privacy": DEST.parent / "Privacy",
             "Sample": DEST.parent / "Sample",
             "ReaderDesign.swift": ROOT / "JustMarkdown/ReaderDesign.swift",
         }

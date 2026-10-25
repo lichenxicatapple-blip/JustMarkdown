@@ -98,19 +98,19 @@
         }
       }
     },
-    "Allow & Send": {
+    "Allow": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow & Send"
+            "value": "Allow"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许并发送"
+            "value": "允许"
           }
         }
       }

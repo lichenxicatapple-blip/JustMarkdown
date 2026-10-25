@@ -197,7 +197,7 @@ struct ReaderScreen: View {
         .alert("Allow Sending to This AI Service?", isPresented: $session.needsDataSharingConsent) {
             Button("Cancel", role: .cancel) { session.finishDataSharingConsent(allowed: false) }
                 .accessibilityIdentifier("CancelModelDataSharing")
-            Button("Allow & Send") { session.finishDataSharingConsent(allowed: true) }
+            Button("Allow") { session.finishDataSharingConsent(allowed: true) }
                 .accessibilityIdentifier("AllowModelDataSharing")
         } message: {
             Text(
