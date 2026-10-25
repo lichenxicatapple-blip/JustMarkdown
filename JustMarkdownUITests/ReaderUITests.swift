@@ -14,6 +14,104 @@ final class ReaderUITests: XCTestCase {
         add(attachment)
     }
 
+    private func allowDataSharingIfRequested(_ app: XCUIApplication) {
+        let allow = app.alerts.buttons["AllowModelDataSharing"].firstMatch
+        if allow.waitForExistence(timeout: 5) { allow.tap() }
+    }
+
+    func testPrivacyPolicyHomeEntryAndLocalizedContent() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        for (language, locale, title, firstSection, lastSection) in [
+            ("zh-Hans", "zh_CN", "隐私政策", "1. 适用范围", "9. 政策更新与联系"),
+            ("en", "en_US", "Privacy Policy", "1. Scope", "9. Updates and contact"),
+        ] {
+            app.launchArguments = [
+                "--ui-testing", "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
+            ]
+            app.launch()
+            let entry = app.buttons["PrivacyPolicy"]
+            XCTAssertTrue(entry.waitForExistence(timeout: 8))
+            let open = app.buttons["OpenDocument"]
+            XCTAssertGreaterThanOrEqual(entry.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(entry.frame.height, 44)
+            XCTAssertGreaterThan(entry.frame.minY, open.frame.maxY)
+            XCTAssertGreaterThan(entry.frame.midX, app.frame.midX)
+            record("home-privacy-\(language)")
+            entry.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 8))
+            let policy = app.webViews["PrivacyPolicyContent"]
+            XCTAssertTrue(policy.staticTexts[firstSection].waitForExistence(timeout: 8))
+            XCTAssertFalse(open.isHittable)
+            XCTAssertTrue(policy.links["lichenxi.catapple@gmail.com"].firstMatch.exists)
+            record("privacy-policy-\(language)")
+            let last = policy.staticTexts[lastSection]
+            for _ in 0..<20 {
+                if last.isHittable { break }
+                policy.swipeUp()
+            }
+            XCTAssertTrue(last.isHittable, "The complete policy must be readable inside the modal")
+            app.buttons["ClosePrivacyPolicy"].tap()
+            XCTAssertTrue(open.waitForExistence(timeout: 5))
+            XCTAssertTrue(entry.isHittable)
+            app.terminate()
+        }
+    }
+
+    func testSendingConsentCancelAllowAndPersistence() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        for (language, locale, title, send, allow, cancel) in [
+            ("zh-Hans", "zh_CN", "允许发送到此 AI 服务？", "发送问题", "允许并发送", "取消"),
+            ("en", "en_US", "Allow Sending to This AI Service?", "Send message", "Allow & Send", "Cancel"),
+        ] {
+            app.launchArguments = [
+                "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+                "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
+            ]
+            app.launch()
+            XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+            showTools(app)
+            app.buttons["GlobalAI"].tap()
+            let input = app.textViews["QuestionInput"]
+            XCTAssertTrue(input.waitForExistence(timeout: 8))
+            XCTAssertFalse(app.alerts[title].exists, "Opening AI must not ask for sending permission")
+            input.tap()
+            input.typeText("Explain Markdown.")
+            app.webViews.buttons[send].tap()
+            let alert = app.alerts[title]
+            XCTAssertTrue(alert.waitForExistence(timeout: 6))
+            XCTAssertEqual(alert.buttons["AllowModelDataSharing"].firstMatch.label, allow)
+            XCTAssertEqual(alert.buttons["CancelModelDataSharing"].firstMatch.label, cancel)
+            XCTAssertTrue(
+                alert.staticTexts.containing(
+                    NSPredicate(format: "label CONTAINS %@", "https://ui-fixture.justmarkdown.invalid/v1")
+                ).firstMatch.exists)
+            record("ai-sending-consent-\(language)")
+            alert.buttons["CancelModelDataSharing"].firstMatch.tap()
+            XCTAssertEqual(input.value as? String, "Explain Markdown.")
+            app.webViews.buttons[send].tap()
+            XCTAssertTrue(alert.waitForExistence(timeout: 6), "Cancel must not store permission")
+            alert.buttons["AllowModelDataSharing"].firstMatch.tap()
+            XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
+            XCTAssertEqual(input.value as? String, "")
+
+            app.terminate()
+            app.launchArguments.append("--ui-test-keep-state")
+            app.launch()
+            XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+            showTools(app)
+            app.buttons["GlobalAI"].tap()
+            XCTAssertTrue(input.waitForExistence(timeout: 8))
+            input.tap()
+            input.typeText("Explain Markdown again.")
+            app.webViews.buttons[send].tap()
+            XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
+            XCTAssertFalse(alert.exists, "The same service must remain authorized after relaunch")
+            app.terminate()
+        }
+    }
+
     func testEnglishInterfaceAcrossReaderSettingsAndRecents() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -610,6 +708,7 @@ final class ReaderUITests: XCTestCase {
         input.tap()
         input.typeText("请修改第一段，让它更简洁。")
         app.webViews.buttons["发送问题"].tap()
+        allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["请切换到源码后再修改。"].waitForExistence(timeout: 12))
         record("ai-preview-read-only")
         app.webViews.buttons["收起对话"].tap()
@@ -759,6 +858,7 @@ final class ReaderUITests: XCTestCase {
         let input = openQuestionInput(app)
         input.typeText("Explain Markdown.")
         app.webViews.buttons["发送问题"].tap()
+        allowDataSharingIfRequested(app)
         let retry = app.webViews.buttons["重试"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
         input.typeText("unsent next question")
@@ -805,6 +905,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(input.value as? String, "firsXt\nsecond")
         XCTAssertFalse(validation.exists)
         input.typeKey(.return, modifierFlags: [])
+        allowDataSharingIfRequested(app)
         XCTAssertTrue(validation.waitForExistence(timeout: 3), "Physical Return must invoke the send action")
         XCTAssertEqual(
             input.value as? String, "", "A committed question remains in conversation after failure")
@@ -816,6 +917,7 @@ final class ReaderUITests: XCTestCase {
         let input = openQuestionInput(app)
         input.typeText("a question")
         app.webViews.buttons["发送问题"].tap()
+        allowDataSharingIfRequested(app)
         XCTAssertTrue(app.webViews.staticTexts["无法连接到服务"].waitForExistence(timeout: 3))
         XCTAssertEqual(input.value as? String, "")
         XCTAssertEqual(app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "a question")).count, 1)

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <meta name="color-scheme" content="light dark">
+  <title>JustMarkdown</title>
+  <style>
+    :root { color-scheme: light dark; font: -apple-system-body; -webkit-text-size-adjust: 100%; }
+    body { margin: 0; color: CanvasText; background: Canvas; line-height: 1.6; overflow-wrap: anywhere; }
+    main { max-width: 42rem; margin: 0 auto; padding: 20px 24px 40px; }
+    main > p:first-child { color: GrayText; font-size: .85em; }
+    h3 { margin: 1.8em 0 .65em; font-size: 1.15em; line-height: 1.4; }
+    p, ul { margin: 0 0 1em; }
+    ul { padding-inline-start: 1.3em; }
+    li + li { margin-top: .5em; }
+    a { color: LinkText; }
+    table { width: 100%; margin: 1em 0; border-collapse: collapse; font-size: .9em; }
+    th, td { padding: .7em .5em; text-align: start; vertical-align: top; border-bottom: 1px solid light-dark(#d1d1d6, #48484a); }
+    th:first-child, td:first-child { width: 29%; padding-inline-start: 0; }
+    th:last-child, td:last-child { padding-inline-end: 0; }
+  </style>
+</head>
+<body>
+  <main id="privacy-policy"><p><strong>Last updated:</strong> 2026-10-25<br>
+<strong>Publisher:</strong> CHENXI LI (individual developer)<br>
+<strong>Contact:</strong> <a href="mailto:lichenxi.catapple@gmail.com">lichenxi.catapple@gmail.com</a></p>
+<h3>1. Scope</h3>
+<p>This policy explains how JustMarkdown, published by CHENXI LI, an individual developer
+(“we”), handles information. Versions modified or distributed independently by other
+parties are subject to their respective publishers’ policies.</p>
+<p>JustMarkdown is a local Markdown reader and editor. It does not require an account,
+include advertising, analytics SDKs or cross-app tracking, or provide developer-operated
+document storage, synchronization or AI relay servers.</p>
+<h3>2. Information processed on your device</h3>
+<table>
+<thead>
+<tr>
+<th>Information</th>
+<th>Purpose and storage</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Documents you select and resources such as images within authorized locations</td>
+<td>Used for reading, rendering and editing. Documents are saved in place and accessed within system-granted permissions. They are not automatically uploaded to the developer.</td>
+</tr>
+<tr>
+<td>Recent documents</td>
+<td>The names, locations and system access bookmarks for up to 10 distinct documents and their authorized resource folders are stored on your device for reopening. These records contain no copy of the document text. Bookmarks cannot override system permissions.</td>
+</tr>
+<tr>
+<td>Model settings</td>
+<td>The service address, model name and interface preference are stored in the app’s local settings to establish your chosen connection.</td>
+</tr>
+<tr>
+<td>AI sending permission</td>
+<td>Digest identifiers of allowed service addresses are stored on your device. Permission is remembered for each service; changing its model or API key does not change that permission.</td>
+</tr>
+<tr>
+<td>API key</td>
+<td>Stored in the device’s Keychain using protection that allows access while the device is unlocked and restricts the item to that device. The native network layer uses the key for authentication. It is not provided to document-rendering web content or sent as AI conversation text.</td>
+</tr>
+</tbody>
+</table>
+<p>AI conversations and editing context are processed within the current document session,
+without being saved as persistent conversation history by the app. Closing or switching
+documents ends the session; collapsing the AI panel alone does not.</p>
+<h3>3. Optional AI services and model-list requests</h3>
+<p>You configure the AI service address, model and API key. Requests go directly to the
+service you configure, without passing through a developer-operated server.</p>
+<p>Before documents or conversations are first sent to a service, the app explains the
+scope and destination and asks for your explicit permission. Canceling sends nothing
+and keeps your question and reference in the composer. Once allowed, the app does not
+ask again for that service. A different service address requires new permission.</p>
+<ul>
+<li>Entering or changing valid connection details in model settings may automatically
+request a model list, including before you tap Done. This request uses your API key
+for authentication and does not contain document text.</li>
+<li>Sending an AI message transmits the entire current document, selected passage,
+your question and the current conversation history to your configured service.
+Requests may also include the document filename, content version and reading or
+source mode. Selecting a passage does not limit transmission to that passage.</li>
+<li>Source-editing tasks may involve follow-up model requests containing current-document
+tool arguments, results and changes.</li>
+<li>The app does not separately add the file’s absolute system path or upload local image
+files. Paths, links and other information already present in the document remain part
+of the document text that is transmitted.</li>
+</ul>
+<p>We do not collect your documents or conversations into developer-operated services for
+advertising, profiling or model training. Your chosen provider may process request content,
+authentication information, IP addresses and connection logs. Its retention periods,
+training uses, processing locations and deletion practices depend on that provider and
+your agreement with it. We cannot promise zero retention on behalf of arbitrary custom
+services. Review a provider’s privacy policy and terms before using its service.</p>
+<h3>4. Remote images, links and system services</h3>
+<p>Remote images in documents, quoted content or AI replies may automatically request their
+image URLs when displayed. Image hosts may receive your IP address, requested URL,
+request time and standard network request information. The URL itself may contain
+parameters. External links are opened through the system in the relevant app or website,
+whose subsequent handling is governed by its own policy.</p>
+<p>Apple or your file and backup providers may process download, diagnostic or backup
+information under their own policies. Your chosen model, image or email service may
+process information in another country or region. Local reading does not require AI
+configuration. Rendering components and fonts work offline when local content contains
+no remote resources.</p>
+<h3>5. Information provided when contacting us</h3>
+<p>When you email the contact address, we receive your email address and the information
+you choose to provide. We use it only to handle and respond to your message, conduct
+necessary follow-up and meet applicable legal obligations. Email is processed through
+email service providers and retained as needed for those purposes. Do not send API keys
+or unrelated private documents.</p>
+<h3>6. Retention, deletion and your choices</h3>
+<ul>
+<li>You manage, move or delete original documents and images at their storage locations.
+Deleting the app does not automatically delete originals stored elsewhere.</li>
+<li>Recent documents are limited to 10 entries, with older entries removed as new entries
+are added. Deleting the app can remove its local settings, sending permissions and recent records. System
+backups, file providers and the Keychain may retain information independently under
+their own rules.</li>
+<li>You can clear the API key field in model settings and save to clear the stored key
+value, or revoke the key with its provider. Do not rely solely on uninstalling the app
+to clear a key from the Keychain.</li>
+<li>You can choose not to use AI or stop an ongoing generation. Stopping cannot retract
+content already received by a service. Requests concerning access to or deletion of
+data already received by a third party must be addressed to that provider.</li>
+<li>You may contact the address above to request access to, correction of or deletion of
+information we actually hold. We handle requests according to applicable law and
+what is within our control. We cannot remotely access or delete documents on your device.</li>
+</ul>
+<h3>7. Protection of information</h3>
+<p>The app uses system file permissions, the Keychain and web-content isolation to limit
+access to information. Model settings allow local and other HTTP services. HTTP does
+not provide transport encryption; HTTPS is recommended for internet services. No
+security measure guarantees absolute security. Consider the sensitivity of your content
+when choosing a service address or sharing a document.</p>
+<h3>8. Minors</h3>
+<p>The app does not require an age or create profiles of children. Minors using third-party
+AI services should follow those services’ age requirements and obtain a guardian’s
+consent where required by applicable law.</p>
+<h3>9. Updates and contact</h3>
+<p>We may update this policy as features or applicable requirements change and revise the
+date above. If changes to information handling require renewed authorization, we will
+obtain it as required. For questions about this policy or privacy practices, contact
+<a href="mailto:lichenxi.catapple@gmail.com">lichenxi.catapple@gmail.com</a>.</p>
+</main>
+</body>
+</html>

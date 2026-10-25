@@ -116,20 +116,24 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
 
 @MainActor
 final class AgentFlowTests: XCTestCase {
-    private func wait(timeout: TimeInterval = 30, _ condition: () async throws -> Bool) async throws {
+    private func wait(
+        timeout: TimeInterval = 30, file: StaticString = #filePath, line: UInt = #line,
+        _ condition: () async throws -> Bool
+    ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if try await condition() { return }
             try await Task.sleep(for: .milliseconds(40))
         }
-        XCTFail("Agent did not reach its expected state")
+        XCTFail("Agent did not reach its expected state", file: file, line: line)
         throw ModelError.invalidResponse
     }
 
     private func reader(
         _ text: String, api: ModelAPIProtocol = .chatCompletions,
         baseURL: String = "https://agent.example.test/v1", model: String = "fixture-model",
-        modelClient: ModelClient? = nil, modelKey: @escaping @MainActor () -> String = { "fixture-key" }
+        modelClient: ModelClient? = nil, modelKey: @escaping @MainActor () -> String = { "fixture-key" },
+        dataSharingAllowed: Bool = true
     ) async throws -> (
         ReaderSession, ReaderBridge, UIWindow, URL
     ) {
@@ -147,6 +151,9 @@ final class AgentFlowTests: XCTestCase {
             defaults: defaults,
             modelClient: modelClient ?? ModelClient(session: URLSession(configuration: configuration)),
             modelKey: modelKey)
+        if dataSharingAllowed, let service = try? ModelDataConsent.service(for: session.configuration) {
+            session.dataConsent.allow(service)
+        }
         await session.grant(root)
         await session.open(url)
         let bridge = ReaderBridge(session: session)
@@ -323,6 +330,117 @@ final class AgentFlowTests: XCTestCase {
             attachment.lifetime = .keepAlways
             add(attachment)
         }
+    }
+
+    func testFirstSendWaitsForConsentAndCancelPreservesDraftAndSelection() async throws {
+        AgentFixtureProtocol.queue.reset([AgentFixture(text: "第一轮回答。"), AgentFixture(text: "第二轮回答。")])
+        let (session, bridge, _, _) = try await reader(
+            "# 文档\n\nSELECTED_ONLY\n\n完整文档背景。\n", dataSharingAllowed: false)
+        _ = try await bridge.call("toggleMode")
+        try await wait { session.mode == "source" }
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const editor = document.querySelector('.mdv-source-editor'); const start = editor.value.indexOf('SELECTED_ONLY'); editor.setSelectionRange(start, start + 13);"
+        )
+        _ = try await bridge.call("askSelection")
+        try await send("解释这段。", bridge: bridge)
+        try await wait { session.needsDataSharingConsent }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+        var result = try await state(bridge)
+        XCTAssertEqual(result["draft"] as? String, "解释这段。")
+        XCTAssertTrue((result["reference"] as? String)?.contains("SELECTED_ONLY") == true)
+        XCTAssertEqual((result["turns"] as? [[String: Any]])?.count, 0)
+        // A second submission while the native alert is open cannot queue a send.
+        try await send("解释这段。", bridge: bridge)
+        session.finishDataSharingConsent(allowed: false)
+        try await wait {
+            try await bridge.webView.evaluateJavaScript("!document.querySelector('.mdv-agent-send').disabled") as? Bool
+                == true
+        }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+        result = try await state(bridge)
+        XCTAssertEqual(result["draft"] as? String, "解释这段。")
+        XCTAssertTrue((result["reference"] as? String)?.contains("SELECTED_ONLY") == true)
+        try await send("解释这段。", bridge: bridge)
+        try await wait { session.needsDataSharingConsent }
+        session.finishDataSharingConsent(allowed: true)
+        try await completed(bridge)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+        XCTAssertTrue(String(decoding: AgentFixtureProtocol.queue.requests()[0], as: UTF8.self).contains("完整文档背景"))
+        try await send("继续。", bridge: bridge)
+        try await completed(bridge, count: 4)
+        XCTAssertFalse(session.needsDataSharingConsent)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 2)
+    }
+
+    func testConsentCannotAuthorizeAChangedServiceOrAnotherDocument() async throws {
+        AgentFixtureProtocol.queue.reset([])
+        let (session, bridge, _, file) = try await reader("# 原文\n", dataSharingAllowed: false)
+        let originalService = try ModelDataConsent.service(for: session.configuration)
+        _ = try await bridge.call("toggleAgent")
+        try await send("待发送的问题。", bridge: bridge)
+        try await wait { session.needsDataSharingConsent }
+        session.configuration.baseURL = "https://agent.example.test/another/v1"
+        session.finishDataSharingConsent(allowed: true)
+        try await wait {
+            try await bridge.webView.evaluateJavaScript("!document.querySelector('.mdv-agent-send').disabled") as? Bool
+                == true
+        }
+        XCTAssertFalse(session.dataConsent.allows(originalService))
+        XCTAssertFalse(try session.dataConsent.allows(ModelDataConsent.service(for: session.configuration)))
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+        try await send("待发送的问题。", bridge: bridge)
+        try await wait { session.needsDataSharingConsent }
+        let next = file.deletingLastPathComponent().appendingPathComponent("another.md")
+        try Data("# 另一份文档\n".utf8).write(to: next)
+        await session.open(next)
+        // This harness hosts WebKit directly rather than SwiftUI's observed
+        // ReaderWebView, so forward the document update explicitly.
+        bridge.update()
+        session.finishDataSharingConsent(allowed: true)
+        try await wait { session.rendererReady }
+        XCTAssertFalse(session.needsDataSharingConsent)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+        XCTAssertFalse(try session.dataConsent.allows(ModelDataConsent.service(for: session.configuration)))
+
+        // The native request boundary also rejects a snapshot that skipped the UI gate.
+        session.requestAgent(
+            id: "without-permission", token: session.documentToken,
+            snapshot: AgentSnapshot(question: "禁止发送", attachment: nil, history: []), intent: "question")
+        XCTAssertNil(session.agentTransport.activeID)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+    }
+
+    func testRetryToAnotherServiceRequiresConsentAndPreservesReplyAndDraft() async throws {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: "已经收到的部分回答。", complete: false), AgentFixture(text: "重新生成的回答。"),
+        ])
+        let (session, bridge, _, _) = try await reader("# 文档\n\n原始全文。\n")
+        _ = try await bridge.call("toggleAgent")
+        try await send("解释。", bridge: bridge)
+        try await wait {
+            (try await self.state(bridge)["turns"] as? [[String: Any]])?.last?["state"] as? String == "failed"
+        }
+        session.configuration.baseURL = "https://agent.example.test/another/v1"
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const input = document.querySelector('.mdv-composer textarea'); input.value = '下一轮草稿'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('[data-agent-action=retry]').click();"
+        )
+        try await wait { session.needsDataSharingConsent }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+        session.finishDataSharingConsent(allowed: false)
+        try await wait {
+            try await bridge.webView.evaluateJavaScript("!document.querySelector('.mdv-agent-send').disabled") as? Bool
+                == true
+        }
+        let cancelled = try await state(bridge)
+        XCTAssertEqual(cancelled["draft"] as? String, "下一轮草稿")
+        XCTAssertTrue(((cancelled["turns"] as? [[String: Any]])?.last?["text"] as? String)?.contains("部分回答") == true)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('[data-agent-action=retry]').click();")
+        try await wait { session.needsDataSharingConsent }
+        session.finishDataSharingConsent(allowed: true)
+        try await completed(bridge)
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 2)
+        let completedState = try await state(bridge)
+        XCTAssertEqual(completedState["draft"] as? String, "下一轮草稿")
     }
 
     func testRichRepliesHistoryAndGlobalContextUseCurrentBuffer() async throws {

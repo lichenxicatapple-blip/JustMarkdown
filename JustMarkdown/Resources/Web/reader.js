@@ -559,6 +559,8 @@
     new MutationObserver(updateSymbols).observe(app, {childList:true,subtree:true});
     window.JustMarkdown = {
       async openDocument(document) {
+        pendingNativeAgentConsent?.resolve(false);
+        pendingNativeAgentConsent = null;
         nativeRequests.clear();
         nativeUndoRequests.clear();
         postNative({ type: 'agentCancel', token: nativeToken });
@@ -599,6 +601,12 @@
         if (!entry || entry.id !== payload.id || entry.token !== nativeToken) return;
         pendingNativeAgentEntry = null;
         if (payload.allowed) entry.resume();
+      },
+      resolveAgentConsent(payload) {
+        const pending = pendingNativeAgentConsent;
+        if (!pending || pending.id !== payload.id || pending.token !== payload.token || pending.token !== nativeToken) return;
+        pendingNativeAgentConsent = null;
+        pending.resolve(payload.allowed === true);
       },
       closeAgent() { state.agent = false; render(); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
@@ -669,6 +677,7 @@
     const nativeUndoRequests = new Map();
     let nativeRequestSequence = 0;
     let pendingNativeAgentEntry = null;
+    let pendingNativeAgentConsent = null;
     function ensureNativeAgentConfigured(resume) {
       const id = nativeToken + '-entry-' + (++nativeRequestSequence);
       pendingNativeAgentEntry = { id, token: nativeToken, resume };
@@ -676,6 +685,14 @@
     }
     function createNativeAgentTransport() {
       return {
+        authorize() {
+          if (pendingNativeAgentConsent) return Promise.resolve(false);
+          const id = nativeToken + '-consent-' + (++nativeRequestSequence);
+          return new Promise(resolve => {
+            pendingNativeAgentConsent = { id, token: nativeToken, resolve };
+            postNative({ type: 'agentConsent', id, token: nativeToken });
+          });
+        },
         stream(snapshot, intent, callbacks) {
           const id = nativeToken + '-' + (++nativeRequestSequence);
           nativeRequests.set(id, callbacks);

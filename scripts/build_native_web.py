@@ -120,6 +120,34 @@ def web_localizations():
     return translations
 
 
+def privacy_pages(package):
+    """Render the canonical bilingual policy with the already pinned Markdown parser."""
+    policy = (ROOT / "docs/privacy.md").read_text()
+    _, chinese = policy.split("\n## 中文\n", 1)
+    chinese, english = chinese.split("\n## English\n", 1)
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            "const fs = require('node:fs');"
+            "const md = require(process.argv[1])({ html: false });"
+            "const pages = JSON.parse(fs.readFileSync(0, 'utf8'));"
+            "process.stdout.write(JSON.stringify(Object.fromEntries("
+            "Object.entries(pages).map(([lang, text]) => [lang, md.render(text.trim())]))));",
+            str(VENDOR / "markdown-it.js"),
+        ],
+        input=json.dumps({"zh-Hans": chinese, "en": english}),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    template = (SOURCE / "privacy.html").read_text()
+    for language, content in json.loads(result.stdout).items():
+        html = replace_once(template, "<!-- policy-language -->", language)
+        html = replace_once(html, "<!-- policy-content -->", content)
+        (package / f"privacy-{language}.html").write_text(html)
+
+
 def generate(destination):
     spec = json.loads((ROOT / "design/tokens.json").read_text())
     assets = [asset for asset in vendor_assets() if asset.get("target", "web") == "web"]
@@ -154,6 +182,7 @@ def generate(destination):
 
     package = destination / "Web"
     package.mkdir()
+    privacy_pages(package)
     (package / "index.html").write_text(html)
     (package / "reader.js").write_text(runtime)
     localization = replace_once(

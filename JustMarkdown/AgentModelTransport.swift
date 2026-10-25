@@ -53,6 +53,7 @@ struct AgentFailure: Codable, Sendable, Equatable {
             switch error {
             case ModelError.configuration: "configuration"
             case ModelError.missingKey: "authentication"
+            case ModelError.sharingPermission: "permission"
             case ModelError.rateLimited: "rateLimit"
             case ModelError.service(let status, _) where [401, 403].contains(status): "authentication"
             case ModelError.service(let status, _) where [400, 404, 422].contains(status): "configuration"

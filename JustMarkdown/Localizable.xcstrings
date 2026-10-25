@@ -98,6 +98,40 @@
         }
       }
     },
+    "Allow & Send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow & Send"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许并发送"
+          }
+        }
+      }
+    },
+    "Allow Sending to This AI Service?": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Sending to This AI Service?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许发送到此 AI 服务？"
+          }
+        }
+      }
+    },
     "Allow access to the containing folder to open this linked document.": {
       "extractionState": "manual",
       "localizations": {
@@ -111,6 +145,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法打开链接的本地文档，请先授权它所在的文件夹。"
+          }
+        }
+      }
+    },
+    "Allow sending to this AI service before trying again.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow sending to this AI service before trying again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先允许向此 AI 服务发送内容，再重试。"
           }
         }
       }
@@ -1135,6 +1186,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在打开"
+          }
+        }
+      }
+    },
+    "Privacy Policy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privacy Policy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐私政策"
           }
         }
       }
@@ -2291,6 +2359,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "已撤销"
+          }
+        }
+      }
+    },
+    "When you use AI, the full current document, your questions, and this conversation will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When you use AI, the full current document, your questions, and this conversation will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 AI 时，当前文档全文、你的提问和本次对话记录将发送至 %@。\n\n允许后，不再对此服务询问。"
           }
         }
       }

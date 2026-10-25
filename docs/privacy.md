@@ -1,12 +1,12 @@
 # JustMarkdown 隐私政策 / Privacy Policy
 
-**更新日期 / Last updated:** 2026-10-24  
-**发布者 / Publisher:** CHENXI LI（个人开发者 / individual developer）  
-**联系邮箱 / Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
-
 [中文](#中文) · [English](#english)
 
 ## 中文
+
+**更新日期：** 2026-10-25\
+**发布者：** CHENXI LI（个人开发者）\
+**联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
 ### 1. 适用范围
 
@@ -23,6 +23,7 @@ JustMarkdown 是本地 Markdown 阅读与编辑工具，不要求注册账号，
 | 你选择的文档及授权范围内的图片等资源 | 用于阅读、渲染和编辑。文档在原位置保存；应用按系统授予的范围访问文件，不会自动将这些文件上传给开发者。 |
 | 最近打开记录 | 在设备上保存最近 10 份不同文档的名称、位置、文件与资源目录的系统授权书签，用于重新打开。记录不包含正文副本；书签不能绕过系统权限。 |
 | 模型设置 | 服务地址、模型名称和接口偏好保存在应用的本地设置中，用于建立你指定的连接。 |
+| AI 发送授权 | 在设备上保存已允许服务地址的摘要标识。对同一服务不重复询问；切换模型或更新密钥不改变该授权。 |
 | API Key | 保存在本机钥匙串，采用设备解锁时可访问、仅限本设备的保护等级。密钥由原生网络层用于认证，不交给文档渲染网页，也不作为 AI 对话正文发送。 |
 
 AI 对话和编辑上下文在当前文档会话中处理，不另行保存为应用的持久化对话历史。
@@ -32,6 +33,9 @@ AI 对话和编辑上下文在当前文档会话中处理，不另行保存为�
 
 AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直接发送至你配置的服务，
 不经过开发者运营的服务器。
+
+首次向一个服务发送文档或对话前，应用会说明发送范围和接收地址，并请求你的明确许可。
+取消时不发送，问题和引用保留在输入区。允许后对该服务不再询问；更换服务地址时重新请求许可。
 
 - 在模型设置中输入或更改有效连接信息时，应用可能自动查询模型列表；尚未点击“完成”
   也可能发起查询。查询使用你填写的 API Key 认证，不包含文档正文。
@@ -65,7 +69,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 ### 6. 保留、删除与用户控制
 
 - 原文档和图片由你在其保存位置管理、移动或删除。删除应用不会自动删除保存在其他位置的原文档。
-- 最近打开记录最多保留 10 项，较旧记录随新记录加入而移除。删除应用可清除其本地设置和最近记录；
+- 最近打开记录最多保留 10 项，较旧记录随新记录加入而移除。删除应用可清除其本地设置、发送授权和最近记录；
   系统备份、文件提供程序及钥匙串可能按系统规则独立保留信息。
 - 你可以在模型设置中清空 API Key 并保存，以清除应用保存的密钥值，也可在服务提供者处撤销密钥。
   不应仅依赖卸载应用来清除钥匙串中的密钥。
@@ -93,6 +97,10 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
+**Last updated:** 2026-10-25\
+**Publisher:** CHENXI LI (individual developer)\
+**Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
+
 ### 1. Scope
 
 This policy explains how JustMarkdown, published by CHENXI LI, an individual developer
@@ -110,6 +118,7 @@ document storage, synchronization or AI relay servers.
 | Documents you select and resources such as images within authorized locations | Used for reading, rendering and editing. Documents are saved in place and accessed within system-granted permissions. They are not automatically uploaded to the developer. |
 | Recent documents | The names, locations and system access bookmarks for up to 10 distinct documents and their authorized resource folders are stored on your device for reopening. These records contain no copy of the document text. Bookmarks cannot override system permissions. |
 | Model settings | The service address, model name and interface preference are stored in the app’s local settings to establish your chosen connection. |
+| AI sending permission | Digest identifiers of allowed service addresses are stored on your device. Permission is remembered for each service; changing its model or API key does not change that permission. |
 | API key | Stored in the device’s Keychain using protection that allows access while the device is unlocked and restricts the item to that device. The native network layer uses the key for authentication. It is not provided to document-rendering web content or sent as AI conversation text. |
 
 AI conversations and editing context are processed within the current document session,
@@ -120,6 +129,11 @@ documents ends the session; collapsing the AI panel alone does not.
 
 You configure the AI service address, model and API key. Requests go directly to the
 service you configure, without passing through a developer-operated server.
+
+Before documents or conversations are first sent to a service, the app explains the
+scope and destination and asks for your explicit permission. Canceling sends nothing
+and keeps your question and reference in the composer. Once allowed, the app does not
+ask again for that service. A different service address requires new permission.
 
 - Entering or changing valid connection details in model settings may automatically
   request a model list, including before you tap Done. This request uses your API key
@@ -168,7 +182,7 @@ or unrelated private documents.
 - You manage, move or delete original documents and images at their storage locations.
   Deleting the app does not automatically delete originals stored elsewhere.
 - Recent documents are limited to 10 entries, with older entries removed as new entries
-  are added. Deleting the app can remove its local settings and recent records. System
+  are added. Deleting the app can remove its local settings, sending permissions and recent records. System
   backups, file providers and the Keychain may retain information independently under
   their own rules.
 - You can clear the API key field in model settings and save to clear the stored key

@@ -50,7 +50,8 @@ struct ModelConfiguration: Equatable, Sendable {
 }
 
 enum ModelError: LocalizedError {
-    case configuration, missingKey, invalidResponse, interrupted, incomplete, contextLimit, requestTooLarge,
+    case configuration, missingKey, sharingPermission, invalidResponse, interrupted, incomplete, contextLimit,
+        requestTooLarge,
         generationFailed
     case rateLimited(TimeInterval)
     case service(Int, String)
@@ -59,6 +60,7 @@ enum ModelError: LocalizedError {
         switch self {
         case .configuration: String(localized: "Enter a valid Base URL and Model ID in Model Settings.")
         case .missingKey: String(localized: "Enter your API key in Model Settings.")
+        case .sharingPermission: String(localized: "Allow sending to this AI service before trying again.")
         case .invalidResponse:
             String(localized: "The model service returned an unreadable response. Check the API type and Model ID.")
         case .interrupted: String(localized: "The response was interrupted.")

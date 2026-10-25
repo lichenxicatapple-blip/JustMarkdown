@@ -3,6 +3,7 @@
     const nativeUndoRequests = new Map();
     let nativeRequestSequence = 0;
     let pendingNativeAgentEntry = null;
+    let pendingNativeAgentConsent = null;
     function ensureNativeAgentConfigured(resume) {
       const id = nativeToken + '-entry-' + (++nativeRequestSequence);
       pendingNativeAgentEntry = { id, token: nativeToken, resume };
@@ -10,6 +11,14 @@
     }
     function createNativeAgentTransport() {
       return {
+        authorize() {
+          if (pendingNativeAgentConsent) return Promise.resolve(false);
+          const id = nativeToken + '-consent-' + (++nativeRequestSequence);
+          return new Promise(resolve => {
+            pendingNativeAgentConsent = { id, token: nativeToken, resolve };
+            postNative({ type: 'agentConsent', id, token: nativeToken });
+          });
+        },
         stream(snapshot, intent, callbacks) {
           const id = nativeToken + '-' + (++nativeRequestSequence);
           nativeRequests.set(id, callbacks);

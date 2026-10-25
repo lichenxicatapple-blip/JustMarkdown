@@ -25,6 +25,7 @@ struct ReaderScreen: View {
     @State private var modelSettingsSaved = false
     @State private var visibleHomeItems: Set<HomeItem> = []
     @State private var recentsPresented = false
+    @State private var privacyPresented = false
     @AccessibilityFocusState private var focusedAction: ReaderAccessibilityAction?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -37,7 +38,19 @@ struct ReaderScreen: View {
         GeometryReader { geometry in
             ZStack {
                 if session.document == nil {
-                    welcome(viewport: geometry.size)
+                    welcome
+                        .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
+                            Button {
+                                privacyPresented = true
+                            } label: {
+                                Text("Privacy Policy")
+                                    .frame(minWidth: ReaderDesign.hitTarget, minHeight: ReaderDesign.hitTarget)
+                                    .contentShape(Rectangle())
+                            }
+                            .font(.caption).foregroundStyle(.secondary).buttonStyle(.plain)
+                            .padding(.horizontal, 24)
+                            .accessibilityIdentifier("PrivacyPolicy")
+                        }
                         .transition(.opacity)
                 } else {
                     ZStack {
@@ -159,6 +172,7 @@ struct ReaderScreen: View {
                 .presentationBackgroundInteraction(.disabled)
                 .interactiveDismissDisabled()
         }
+        .sheet(isPresented: $privacyPresented) { PrivacyPolicyView() }
         .alert(
             "Unable to Complete Action",
             isPresented: Binding(get: { session.errorMessage != nil }, set: { if !$0 { session.errorMessage = nil } })
@@ -180,6 +194,16 @@ struct ReaderScreen: View {
             Button("Cancel", role: .cancel) { session.finishAgentConfiguration(saved: false) }
             Button("Open Settings") { session.modelSettingsRequested = true }
         }
+        .alert("Allow Sending to This AI Service?", isPresented: $session.needsDataSharingConsent) {
+            Button("Cancel", role: .cancel) { session.finishDataSharingConsent(allowed: false) }
+                .accessibilityIdentifier("CancelModelDataSharing")
+            Button("Allow & Send") { session.finishDataSharingConsent(allowed: true) }
+                .accessibilityIdentifier("AllowModelDataSharing")
+        } message: {
+            Text(
+                "When you use AI, the full current document, your questions, and this conversation will be sent to \(session.dataSharingServiceAddress).\n\nOnce you allow this, you won’t be asked again for this service."
+            )
+        }
         .alert("Unable to Save Document", isPresented: $session.closeSaveFailed) {
             Button("Retry") { Task { await session.closeDocument() } }
                 .keyboardShortcut(.defaultAction)
@@ -192,23 +216,25 @@ struct ReaderScreen: View {
         }
     }
 
-    private func welcome(viewport: CGSize) -> some View {
-        let markSize = min(ReaderDesign.homeMark, max(ReaderDesign.homeMark / 2, viewport.height * 0.22))
-        return ScrollView {
-            VStack(spacing: 0) {
-                ForEach(HomeItem.allCases, id: \.self) { item in
-                    let visible = reduceMotion || visibleHomeItems.contains(item)
-                    homeContent(item, markSize: markSize)
-                        .modifier(HomeEntrance(visible: visible, reduceMotion: reduceMotion))
-                        .accessibilityHidden(item == .mark || !visible)
-                        .padding(.top, item.spacingBefore)
+    private var welcome: some View {
+        GeometryReader { geometry in
+            let markSize = min(ReaderDesign.homeMark, max(ReaderDesign.homeMark / 2, geometry.size.height * 0.22))
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(HomeItem.allCases, id: \.self) { item in
+                        let visible = reduceMotion || visibleHomeItems.contains(item)
+                        homeContent(item, markSize: markSize)
+                            .modifier(HomeEntrance(visible: visible, reduceMotion: reduceMotion))
+                            .accessibilityHidden(item == .mark || !visible)
+                            .padding(.top, item.spacingBefore)
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 24).padding(.vertical, 32)
+                .frame(minHeight: geometry.size.height)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24).padding(.vertical, 32)
-            .frame(minHeight: viewport.height)
+            .scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
         }
-        .scrollIndicators(.hidden).scrollBounceBehavior(.basedOnSize)
         .task(id: reduceMotion) { await revealHome() }
         .onDisappear {
             var transaction = Transaction(animation: nil)

@@ -16,7 +16,8 @@
         "QuestionPanel",
         "ModelSettings",
         "ModelConfigurationPrompt",
-        "DocumentClose"
+        "DocumentClose",
+        "ModelDataConsentPrompt"
       ],
       "invariants": [
         "One native screen coordinates the document surface and shared reading controls."
@@ -29,10 +30,11 @@
         "JustMarkdown/ReaderScreen.swift"
       ],
       "owns": [
-        "RecentDocuments"
+        "RecentDocuments",
+        "PrivacyPolicy"
       ],
       "invariants": [
-        "One ordered collection determines homepage layout and entrance sequence."
+        "One ordered collection determines the central homepage layout and entrance sequence; the policy entry occupies its own footer."
       ],
       "specification": "design/README.md#首页与最近文档"
     },
@@ -295,6 +297,31 @@
         "Typing, composition, paste, AI transactions, touch controls and keyboard shortcuts share one undo and redo history."
       ],
       "specification": "design/README.md#阅读与源码"
+    },
+    {
+      "id": "PrivacyPolicy",
+      "nativeOwners": [
+        "JustMarkdown/PrivacyPolicyView.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/privacy.html"
+      ],
+      "invariants": [
+        "One quiet homepage entry presents the bundled policy in the App language without reader state, JavaScript or remote resources."
+      ],
+      "specification": "design/README.md#首页与最近文档"
+    },
+    {
+      "id": "ModelDataConsentPrompt",
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift",
+        "JustMarkdown/ReaderSession.swift",
+        "JustMarkdown/ModelDataConsent.swift"
+      ],
+      "invariants": [
+        "The first send to each service requires explicit native approval; cancellation preserves the draft and reference without starting a request."
+      ],
+      "specification": "design/README.md#ai-对话"
     }
   ]
 }

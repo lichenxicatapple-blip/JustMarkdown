@@ -54,6 +54,8 @@
     let scrimAnimation = null;
     let panelRevision = 0;
     let activeStream = null;
+    let pendingAuthorization = null;
+    let conversationRevision = 0;
     let latestRequest = null;
     let referenceScrollTimer = 0;
     const referenceViewportObserver = new ResizeObserver(entries => {
@@ -196,7 +198,7 @@
     }
     function updateSendState() {
       const generating = !!activeStream;
-      sendButton.disabled = !generating && !input.value.trim();
+      sendButton.disabled = !!pendingAuthorization || (!generating && !input.value.trim());
       sendButton.setAttribute('aria-label', generating ? t("Stop generating") : t("Send message"));
       sendButton.type = generating ? 'button' : 'submit';
       const desired = generating ? 'square' : 'arrow-up';
@@ -337,6 +339,7 @@
       keepAtBottom();
     }
     const failureMessages = {
+      permission: t("Allow sending to this AI service before trying again."),
       network: t("Unable to connect to the service"),
       timeout: t("Request timed out"),
       authentication: t("Authentication failed. Check your API key"),
@@ -385,11 +388,14 @@
       if (retry.disabled) request.cooldownTimer = setInterval(updateRetry, 250);
       retry.addEventListener('click', () => {
         if (activeStream || latestRequest !== request || Date.now() < request.retryAt) return;
-        followBottom = true;
-        // Keep keyboard focus in the response without opening the software keyboard.
-        message.element.tabIndex = -1;
-        message.element.focus({ preventScroll: true });
-        streamReply(request);
+        authorizeSend(() => {
+          if (latestRequest !== request) return;
+          followBottom = true;
+          // Keep keyboard focus in the response without opening the software keyboard.
+          message.element.tabIndex = -1;
+          message.element.focus({ preventScroll: true });
+          streamReply(request);
+        });
       });
       updateSendState();
       animateContent(status, motion.content);
@@ -478,15 +484,31 @@
     function send() {
       if (nativeInputs && !nativeInputs.committing) { nativeInputs.requestSubmit('question'); return; }
       if (activeStream || !input.value.trim()) return;
-      const text = input.value.trim();
-      const value = attachment?.scope === 'document' ? documentAttachment() : attachment ? { ...attachment } : null;
-      followBottom = true;
-      const user = addMessage('user', text, value);
-      input.value = '';
-      attachment = null;
-      renderAttachment(null);
-      beginRequest(user);
-      input.focus({ preventScroll: true });
+      authorizeSend(() => {
+        if (!input.value.trim()) return;
+        const text = input.value.trim();
+        const value = attachment?.scope === 'document' ? documentAttachment() : attachment ? { ...attachment } : null;
+        followBottom = true;
+        const user = addMessage('user', text, value);
+        input.value = '';
+        attachment = null;
+        renderAttachment(null);
+        beginRequest(user);
+        input.focus({ preventScroll: true });
+      });
+    }
+    async function authorizeSend(action) {
+      if (activeStream || pendingAuthorization) return;
+      const pending = { revision: conversationRevision };
+      pendingAuthorization = pending;
+      updateSendState();
+      try {
+        const allowed = await provider.authorize();
+        if (allowed && pendingAuthorization === pending && pending.revision === conversationRevision) action();
+      } finally {
+        if (pendingAuthorization === pending) pendingAuthorization = null;
+        updateSendState();
+      }
     }
     function diffLines(before, after) {
       const oldLines = before.split('\n');
@@ -691,6 +713,8 @@
     updateSendState();
     viewportChanged();
     function reset() {
+      ++conversationRevision;
+      pendingAuthorization = null;
       if (activeStream) { activeStream.cancel?.(); clearTimeout(activeStream.timer); clearTimeout(activeStream.renderTimer); }
       activeStream = null;
       clearRetry(latestRequest);

@@ -218,6 +218,10 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 let request = try? JSONDecoder().decode(AgentSnapshot.self, from: data)
             else { return }
             session.requestAgent(id: id, token: session.documentToken, snapshot: request, intent: intent)
+        case "agentConsent":
+            if let id = body["id"] as? String, let token = body["token"] as? String {
+                session.requestDataSharingConsent(id: id, token: token)
+            }
         case "agentCancel":
             if body["token"] as? String == session.documentToken {
                 session.agentTransport.cancel(id: body["id"] as? String)
@@ -266,6 +270,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func detach() {
+        session.finishDataSharingConsent(allowed: false)
         session.agentTransport.cancel()
         composer.detach()
         webView.askSelectedText = nil
@@ -283,6 +288,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        session.finishDataSharingConsent(allowed: false)
         session.agentTransport.cancel()
         composer.blur()
         session.agentOpen = false

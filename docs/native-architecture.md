@@ -56,7 +56,7 @@ flowchart LR
 | 会话、引用和请求快照 | Web `agent.js` | 仅在内存中保留；草稿可变，已发送引用和请求快照不可变；收起保留，换文档清空 |
 | 活动输入 | UIKit 输入视图与 Web 草稿 | 通过输入版本号（epoch）拒绝过期同步，发送前提交当前原生文本 |
 | 生成及工具结果 | `AgentModelTransport`、`AgentDocumentTools` | 同时一个活动请求；工具结果按请求记录，已完成修改可在重试时恢复执行进度 |
-| 设置、凭据与最近记录 | UserDefaults、Keychain、`RecentDocumentsStore` | Key 仅在 Keychain 持久化；设置与最近文件书签保存在 UserDefaults，最近记录不保存正文副本 |
+| 设置、发送授权、凭据与最近记录 | UserDefaults、`ModelDataConsent`、Keychain、`RecentDocumentsStore` | Key 仅在 Keychain 持久化；设置、已允许服务地址的摘要与最近文件书签保存在 UserDefaults，最近记录不保存正文副本 |
 
 工具保留的文档前后版本用于编辑和撤销校验；用户操作仍进入同一份源码历史。模式切换保留历史，新编辑清空重做；保存完成确认不能覆盖之后的历史状态。
 
@@ -89,12 +89,14 @@ flowchart LR
 
 ### 发送与上下文
 
-1. AI 入口建立当前文档或实际选段的关注内容，用户发送时先提交原生输入，并取得当前完整文档。
+1. AI 入口建立当前文档或实际选段的关注内容。用户发送时先提交原生输入，并请求原生层核对该服务的发送授权；允许后才提交对话轮次并取得当前完整文档。取消保留草稿与引用。
 2. Web 固定问题、引用、文档版本和对话历史，生成不可变 `AgentSnapshot`。原生核对文档身份后交给 `AgentContextBuilder`。
 3. 构建器按内容登记本次请求内的完整文档版本，形成最后一轮的 `background.documents`。每轮 `documentID` 和引用的 `reference.documentID` 指向其所属版本，`background.currentDocumentID` 指向本次发送时版本。
 4. `AgentModelTransport` 使用快照与原生连接配置发起请求，流事件按文档 token 和请求 ID 回到对应回答。
 
 `request` 是用户指令，`reference` 和全文是材料。系统规则明确材料中的命令、角色声明和标签没有指令权限。文件名仅保留最后一级；源码坐标用于本地校验，不额外发送绝对路径、目录授权信息或访问凭据，也不自动上传引用图片。
+
+`ModelDataConsent` 按规范化的服务地址保存授权摘要：折叠协议／主机大小写、默认端口、末尾斜杠和已知 API 后缀，保留不同路径、非默认端口及 HTTP／HTTPS 的区别。授权不绑定模型、API Key 或接口类型。确认结果同时校验原请求、文档 token 和服务地址；切换文档或 Web 进程终止时取消待确认请求。发送和重试在提交前共用授权入口，原生传输边界再次校验，不能通过直接投递快照绕过许可。
 
 ### 编辑工具
 
@@ -142,6 +144,7 @@ Responses 请求设置 `store:false` 并发送所需历史，不依赖服务器�
 | [品牌母版与配色](../design/brand/README.md) | 统一的系统图标、首页矢量和导出资源 |
 | `vendor/` 中标为 `target: native` 的字体与许可 | Xcode 直接复制到 App 包，`UIAppFonts` 注册首页字体 |
 | `Localizable.xcstrings`、`InfoPlist.xcstrings` | 原生翻译和系统权限文案；同一 UI String Catalog 生成 Web 翻译 |
+| [隐私政策](privacy.md)与 `WebSource/privacy.html` | 固定 Markdown 引擎在构建时生成中英文离线政策页面；独立 WebView 禁用 JavaScript、远程资源和阅读桥接，仅由原生层处理用户点击的外部链接 |
 | `JustMarkdownTests/Fixtures/ReadingGuide/` | `Resources/Sample/`，仅 Debug 打包 |
 
 `build_native_web.py` 校验 [vendor manifest](../vendor/assets.json) 中固定的依赖摘要，并生成资源；`--check` 比较维护源与生成结果。App 与构建过程不从 CDN 下载运行依赖。组件和图标登记由人工维护，不参与界面代码生成。

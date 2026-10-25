@@ -17,6 +17,7 @@ final class ReaderSession: ObservableObject {
     @Published var agentOpen = false
     @Published var agentModalActive = false
     @Published var needsModelConfiguration = false
+    @Published var needsDataSharingConsent = false
     @Published var modelSettingsRequested = false
     @Published private(set) var isClosingDocument = false
     @Published var closeSaveFailed = false
@@ -32,11 +33,13 @@ final class ReaderSession: ObservableObject {
     let agentTransport: AgentModelTransport
     let modelCatalog: ModelCatalogCache
     let recentDocuments: RecentDocumentsStore
+    let dataConsent: ModelDataConsent
     lazy var agentDocuments = AgentDocumentTools(session: self)
     private let modelKey: @MainActor () -> String
     private var opening = false
     private var failedCloseToken: String?
     private var pendingAgentEntry: (id: String, token: String)?
+    private var pendingDataSharing: (id: String, token: String, service: URL)?
     private let defaults: UserDefaults
 
     init(
@@ -45,6 +48,7 @@ final class ReaderSession: ObservableObject {
         modelKey: @escaping @MainActor () -> String = { ModelKeychain.read() }
     ) {
         self.defaults = defaults
+        dataConsent = ModelDataConsent(defaults: defaults)
         recentDocuments = RecentDocumentsStore(defaults: defaults)
         self.modelKey = modelKey
         agentTransport = AgentModelTransport(client: modelClient)
@@ -178,6 +182,7 @@ final class ReaderSession: ObservableObject {
             return false
         }
         agentTransport.reset()
+        finishDataSharingConsent(allowed: false)
         agentDocuments.reset()
         failedCloseToken = nil
         closeSaveFailed = false
@@ -273,6 +278,7 @@ final class ReaderSession: ObservableObject {
                 return
             }
             agentTransport.reset()
+            finishDataSharingConsent(allowed: false)
             agentDocuments.reset()
             pendingAgentEntry = nil
             failedCloseToken = nil
@@ -364,8 +370,62 @@ final class ReaderSession: ObservableObject {
         _ = try? await bridge?.call("closeAgent")
     }
 
+    var dataSharingServiceAddress: String { pendingDataSharing?.service.absoluteString ?? "" }
+
+    func requestDataSharingConsent(id: String, token: String) {
+        guard token == documentToken, document != nil, !isClosingDocument, pendingDataSharing == nil else {
+            resolveDataSharingConsent(id: id, token: token, allowed: false)
+            return
+        }
+        guard isModelConfigured, let service = try? ModelDataConsent.service(for: configuration) else {
+            errorMessage = ModelError.configuration.localizedDescription
+            resolveDataSharingConsent(id: id, token: token, allowed: false)
+            return
+        }
+        if dataConsent.allows(service) {
+            resolveDataSharingConsent(id: id, token: token, allowed: true)
+        } else {
+            pendingDataSharing = (id, token, service)
+            needsDataSharingConsent = true
+        }
+    }
+
+    func finishDataSharingConsent(allowed: Bool) {
+        guard let pending = pendingDataSharing else { return }
+        pendingDataSharing = nil
+        needsDataSharingConsent = false
+        let valid =
+            allowed && document != nil && !isClosingDocument && pending.token == documentToken
+            && (try? ModelDataConsent.service(for: configuration)) == pending.service && isModelConfigured
+        if valid { dataConsent.allow(pending.service) }
+        resolveDataSharingConsent(id: pending.id, token: pending.token, allowed: valid)
+    }
+
+    private func resolveDataSharingConsent(id: String, token: String, allowed: Bool) {
+        Task { [weak bridge] in
+            _ = try? await bridge?.call(
+                "resolveAgentConsent", arguments: ["payload": ["id": id, "token": token, "allowed": allowed]])
+        }
+    }
+
     func requestAgent(id: String, token: String, snapshot: AgentSnapshot, intent: String) {
         guard token == documentToken, let bridge else { return }
+        let emit: @MainActor (AgentModelEvent) async -> Void = { [weak bridge] event in
+            guard let data = try? JSONEncoder().encode(event),
+                let payload = try? JSONSerialization.jsonObject(with: data)
+            else { return }
+            _ = try? await bridge?.call("agentEvent", arguments: ["payload": payload])
+        }
+        // Recheck at the native transport boundary, including retries and any
+        // connection change between approval and delivery of the Web snapshot.
+        guard let service = try? ModelDataConsent.service(for: configuration), dataConsent.allows(service) else {
+            Task {
+                await emit(
+                    AgentModelEvent(
+                        id: id, token: token, type: "failed", failure: AgentFailure(ModelError.sharingPermission)))
+            }
+            return
+        }
         agentTransport.start(
             id: id, token: token, snapshot: snapshot, intent: intent, configuration: configuration, key: modelKey(),
             toolsAvailable: { [weak self] in
@@ -375,12 +435,7 @@ final class ReaderSession: ObservableObject {
                 guard let self else { return AgentToolExecution(output: "{\"error\":\"document_closed\"}") }
                 return await self.agentDocuments.execute(call, token: token, onChange: onChange)
             },
-            emit: { [weak bridge] event in
-                guard let data = try? JSONEncoder().encode(event),
-                    let payload = try? JSONSerialization.jsonObject(with: data)
-                else { return }
-                _ = try? await bridge?.call("agentEvent", arguments: ["payload": payload])
-            })
+            emit: emit)
     }
 
     func undoAgentChange(id: String, requestID: String, token: String) {

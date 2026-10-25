@@ -59,6 +59,8 @@
     new MutationObserver(updateSymbols).observe(app, {childList:true,subtree:true});
     window.JustMarkdown = {
       async openDocument(document) {
+        pendingNativeAgentConsent?.resolve(false);
+        pendingNativeAgentConsent = null;
         nativeRequests.clear();
         nativeUndoRequests.clear();
         postNative({ type: 'agentCancel', token: nativeToken });
@@ -99,6 +101,12 @@
         if (!entry || entry.id !== payload.id || entry.token !== nativeToken) return;
         pendingNativeAgentEntry = null;
         if (payload.allowed) entry.resume();
+      },
+      resolveAgentConsent(payload) {
+        const pending = pendingNativeAgentConsent;
+        if (!pending || pending.id !== payload.id || pending.token !== payload.token || pending.token !== nativeToken) return;
+        pendingNativeAgentConsent = null;
+        pending.resolve(payload.allowed === true);
       },
       closeAgent() { state.agent = false; render(); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
