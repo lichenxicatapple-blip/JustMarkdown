@@ -3,7 +3,7 @@
 ## Scope and precedence
 
 - Implement JustMarkdown natively for iPhone and iPad, with iOS/iPadOS 26 as the baseline. The workspace remains MDViewer.
-- Read [README](README.md) and [the architecture and maintenance constraints](docs/native-architecture.md) before changing the reader. Follow the shared component invariants; implementation parameters remain reviewable. The latest user instruction takes precedence.
+- Read [README](README.md), [the design specification](design/README.md) and [the architecture](docs/native-architecture.md) before changing the reader. Follow the shared component invariants; implementation parameters remain reviewable. The latest user instruction takes precedence.
 - Discuss and obtain confirmation before introducing an unrequested product capability or workflow. Continue authorized fixes, alignment, component reuse and motion refinement without repeated permission requests.
 
 ## Sources of truth
@@ -11,10 +11,11 @@
 | Source | Responsibility |
 | --- | --- |
 | [README](README.md) | Concise product introduction, language links and one reading screenshot |
-| [Native architecture](docs/native-architecture.md) | Module ownership, interaction constraints, file access, context versions, tools and transport |
+| [Design specification](design/README.md) | Visual hierarchy, responsive layout, component behavior, rendering scope and motion |
+| [Native architecture](docs/native-architecture.md) | Module relationships, state ownership, file access, context versions, tools and transport |
 | [Privacy](docs/privacy.md) | Data, credentials and network flows |
 | [Design tokens](design/tokens.json) | Shared values and motion parameters |
-| [Components](design/components.json) | Shared component ownership and invariants |
+| [Components](design/components.json) | Component ownership, reuse contracts and design-section references |
 | [Icons](design/icons.json) | Icon mapping |
 | [Brand resources](design/brand/README.md) | One SVG master and palette for all generated logo and App icon assets |
 | `JustMarkdown/Localizable.xcstrings` / `InfoPlist.xcstrings` | Shared native/Web UI translations and system permission copy |

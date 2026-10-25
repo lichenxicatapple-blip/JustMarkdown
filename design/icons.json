@@ -1,10 +1,12 @@
 {
   "version": 1,
+  "specification": "design/README.md#视觉基础",
   "references": [
     "https://developer.apple.com/sf-symbols/",
     "https://lucide.dev/icons/"
   ],
   "style": {
+    "appliesTo": "Web fallback artwork; native SF Symbols retain their system metrics",
     "grid": 24,
     "strokeWidth": 1.75,
     "cap": "round",

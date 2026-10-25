@@ -1,266 +1,300 @@
 {
-  "version": 1,
-  "status": "Native iOS/iPadOS 26 component contract.",
+  "version": 2,
+  "specification": "design/README.md",
   "tokenSource": "design/tokens.json",
   "components": [
     {
       "id": "ReaderScreen",
-      "selector": "[data-component='ReaderScreen']",
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift"
+      ],
       "owns": [
+        "Home",
         "OutlineNavigator",
         "DocumentSurface",
         "FloatingActions",
         "QuestionPanel",
         "ModelSettings",
-        "DocumentClose",
+        "ModelConfigurationPrompt",
+        "DocumentClose"
+      ],
+      "invariants": [
+        "One native screen coordinates the document surface and shared reading controls."
+      ],
+      "specification": "design/README.md#布局与适配"
+    },
+    {
+      "id": "Home",
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift"
+      ],
+      "owns": [
         "RecentDocuments"
       ],
-      "state": [
-        "mode",
-        "outlineExpanded",
-        "questionOpen"
+      "invariants": [
+        "One ordered collection determines homepage layout and entrance sequence."
       ],
-      "motion": [
-        "homeEntrance"
-      ],
-      "invariant": "One reading screen; no extra focus/question product modes or top toolbar. Home presents the logo, one lowercase slogan and one primary Open Document action with a quiet Recent Documents text button below it. The visible logo and slogan form a compact brand group, separated from the primary and recent actions by a larger gap. The homepage mark uses the original-color BrandMark vector with a rounded blue background and adaptive light/dark artwork, generated with the layered App icon from design/brand/mark.svg and brand.json. Its visible square bounds determine layout; do not apply a template tint or duplicate the artwork in UI code. Keep group spacing consistent across window sizes, with flexible whitespace around the centered content. The slogan uses the bundled Newsreader 16pt Regular face at the shared 22 pt base size, scaling with the system Title 2 text style so the prominent native Open Document button remains the main action. The slogan uses one font, weight and color throughout: one line when available width permits, wrapping at phrase boundaries on narrow layouts, with further wrapping for large text and no shrinking to force a fit. One ordered item collection drives layout and staggered downward slide/fade entrance; adding an item must not require numeric stage changes. Cancel on leaving and replay on returning; Reduce Motion shows the final state directly. No folder browser; request folder access only when local resources need it. Copy and defaults serve general Markdown readers, without restricting document subject.",
-      "nativeOwner": "JustMarkdown/ReaderScreen.swift"
+      "specification": "design/README.md#首页与最近文档"
     },
     {
       "id": "RecentDocuments",
-      "nativeOwner": "ReaderScreen / RecentDocumentsView / RecentDocumentsStore / ReaderSession",
-      "state": [
-        "closed",
-        "presented",
-        "empty",
-        "opening",
-        "failed"
+      "nativeOwners": [
+        "JustMarkdown/RecentDocumentsView.swift",
+        "JustMarkdown/RecentDocuments.swift"
       ],
-      "invariant": "The homepage label is exactly 最近打开... (three ASCII periods), with secondary text styling, a full native hit target and no icon or filled background. It follows the primary action in the shared entrance sequence. One list adapts to a medium/large sheet in compact layouts and a button-anchored popover in regular layouts. The compact close action shares the title row; a regular popover dismisses outside. Rows show filename and parent folder. Selecting a row opens that original document; failure retains the list. Persist only the ten most recently opened distinct documents, updating only after successful opening. Reopening moves the existing item to the front. Resolve saved file/folder bookmarks natively and balance security scope; no document copies or model requests."
+      "invariants": [
+        "The sheet and popover share the same list and successfully opened original-file records."
+      ],
+      "specification": "design/README.md#首页与最近文档"
+    },
+    {
+      "id": "DocumentSurface",
+      "nativeOwners": [
+        "JustMarkdown/ReaderWebView.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/reader.html",
+        "JustMarkdown/WebSource/reader.js",
+        "JustMarkdown/WebSource/reader.css",
+        "JustMarkdown/WebSource/native.css"
+      ],
+      "selector": "[data-component='DocumentSurface']",
+      "owns": [
+        "SelectionQuestionMenu",
+        "SourceHistory"
+      ],
+      "uses": [
+        "RichText"
+      ],
+      "invariants": [
+        "Preview, source and outline derive from one working Markdown buffer."
+      ],
+      "specification": "design/README.md#阅读与源码"
     },
     {
       "id": "OutlineNavigator",
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/reader.js",
+        "JustMarkdown/WebSource/reader.css"
+      ],
       "selector": "[data-component='OutlineNavigator']",
       "owns": [
         "OutlineRow"
       ],
-      "state": [
-        "expanded",
-        "currentHeadingId",
-        "collapsedHeadingIds",
-        "following",
-        "manualBrowsing",
-        "followVelocity"
+      "invariants": [
+        "Expanded and collapsed states reuse one native toggle and reserve no document width when collapsed.",
+        "Automatic following scrolls only the outline pane and yields to manual outline browsing."
       ],
-      "motion": [
-        "layout",
-        "content"
-      ],
-      "invariant": "The same leading floating toggle stays in the same position in both states. Collapsed outline reserves zero document width and only its toggle accepts input. Compact expansion overlays the document; regular expansion shares horizontal space. The toggle and every feedback surface remain circular in all expanded, collapsed, hover, press and keyboard-focus states, with stable border width and hit target. Chapter changes smoothly center the current row within the outline pane, clamped at the ends with compact spacing. Rapid updates and reversals retarget from current position and velocity without queued destinations or jumps. Manual pointer, touch, wheel or scrolling keys pause following until reading resumes or the outline reopens; document momentum must not override manual browsing. Reopening centers the current row. Auto-follow never scrolls the document. Reduce Motion positions directly. A collapsed branch represents its current descendant without forced expansion.",
-      "nativeOwner": "Shared Web reader plus ReaderScreen native toggle"
+      "specification": "design/README.md#目录导航"
     },
     {
       "id": "OutlineRow",
+      "webOwners": [
+        "JustMarkdown/WebSource/reader.js",
+        "JustMarkdown/WebSource/reader.css"
+      ],
       "selector": "[data-component='OutlineRow']",
-      "state": [
-        "headingId",
-        "level",
-        "hasChildren",
-        "expanded",
-        "current"
+      "invariants": [
+        "All rows share one leading control geometry and one layer of interaction feedback."
       ],
-      "motion": [
-        "disclosure",
-        "feedback"
-      ],
-      "invariant": "All rows reserve the same leading hit-target column, including leaves. Label indentation depends only on depth. Disclosure controls and labels are separate targets. Native WebKit tap highlight is transparent; retain the shared hover, focus and current-row feedback without a second gray overlay.",
-      "nativeOwner": "Shared Web reader with native SF Symbol artwork"
-    },
-    {
-      "id": "DocumentSurface",
-      "selector": "[data-component='DocumentSurface']",
-      "owns": [
-        "SelectionQuestionMenu"
-      ],
-      "state": [
-        "preview",
-        "source",
-        "outgoing",
-        "positioning",
-        "incoming",
-        "readingAnchor",
-        "documentReady"
-      ],
-      "motion": [
-        "modeOut",
-        "modeIn"
-      ],
-      "invariant": "Preview, outline, HTML, math and Mermaid derive from the same source buffer. Preview layout fills at least the usable viewport, including the regular outline background, and grows with long content. Source fills the same usable viewport. Rotation and split-screen sizing do not retain fixed minimum heights or add blank document scrolling. Both directions follow current visible content through source ranges, including code-line offsets. Position after target layout and diagrams are ready, before fading in. Unchanged round trips reuse the semantic anchor. No invented document content. Both modes share FloatingActions. A repeated state echo must not cancel a transition.",
-      "nativeOwner": "JustMarkdown/ReaderWebView.swift and MarkdownDocument.swift"
+      "specification": "design/README.md#目录导航"
     },
     {
       "id": "FloatingActions",
-      "selector": "[data-component='FloatingActions']",
-      "state": [
-        "mode",
-        "moreOpen",
-        "resting",
-        "hovered",
-        "pressed",
-        "keyboardFocused",
-        "toolsExpanded",
-        "compactPresentation",
-        "canUndo",
-        "canRedo"
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift"
       ],
-      "motion": [
-        "popover",
-        "feedback",
-        "material",
-        "tools"
+      "invariants": [
+        "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group."
       ],
-      "invariant": "Both modes share AI, source/preview and More. Source adds touch Undo and Redo before AI, with unavailable actions disabled and the tray remaining open after history actions. Phone defaults to one trailing disclosure, revealing 44pt icon-only actions toward the left. Hidden actions are inert. AI and mode selection collapse the tray. Regular layouts show direct actions. Global AI uses the current document, never a cached selection. Native controls reuse system Liquid Glass.",
-      "nativeOwner": "ReaderScreen.floatingActions"
+      "specification": "design/README.md#阅读与源码"
     },
     {
       "id": "SelectionQuestionMenu",
-      "state": [
-        "selection",
-        "systemMenuPresented"
+      "nativeOwners": [
+        "JustMarkdown/ReaderWebView.swift"
       ],
-      "motion": [
-        "popover"
+      "uses": [
+        "QuestionPanel"
       ],
-      "invariant": "Native preview and source use one AI action in the system edit menu. Preserve the actual selection without a second web overlay. Global entry never uses cached selection.",
-      "nativeOwner": "ReaderWKWebView.buildMenu"
+      "invariants": [
+        "One system AI action forwards the actual selection from either document mode."
+      ],
+      "specification": "design/README.md#ai-对话"
     },
     {
       "id": "QuestionPanel",
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/panel.html",
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": "[data-component='QuestionPanel']",
-      "state": [
-        "open",
-        "collapsed",
-        "conversation",
-        "pendingAttachment",
-        "streaming",
-        "failed",
-        "retrying",
-        "retryCooldown",
-        "stopped",
-        "compactPresentation"
-      ],
-      "motion": [
-        "agentPanel",
-        "reference",
-        "message",
-        "proposal",
-        "editFeedback"
-      ],
-      "invariant": "Global entry attaches current document; selection entry attaches selection. Collapse preserves turns and generation. No nonproduction copy, placeholder, avatar or extra mode. Both layouts share one conversation. Selection is the exact focus quote; full document versions supply background and are deduplicated per request. Prompts do not restrict document subject.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; NativeComposerHost.swift; AgentModelTransport.swift; ReaderSession.swift",
-      "nativeInvariant": "Shared conversation, selection, rendering and motion. UIKit owns input and physical press events; Swift owns credentials, requests and file writes.",
       "owns": [
         "ConversationThread",
-        "ConversationComposer",
-        "ContextAttachment",
-        "DocumentChange"
-      ]
-    },
-    {
-      "id": "ModelSettings",
-      "selector": "[data-component='ModelSettings']",
-      "state": [
-        "closed",
-        "opening",
-        "open",
-        "closing",
-        "baseURL",
-        "apiKey",
-        "model",
-        "apiProtocol"
+        "ConversationComposer"
       ],
-      "motion": [
-        "modal"
+      "invariants": [
+        "Global and selection entries share one conversation across compact and regular presentations."
       ],
-      "invariant": "Foreground modal blocks background until closing completes. Explicit Responses or Chat Completions; never probe or automatically fall back.",
-      "nativeOwner": "JustMarkdown/ModelSettingsView.swift, ModelSelectionView.swift, ModelCatalog.swift and ModelConnection.swift",
-      "nativeInvariant": "Native foreground modal blocks background interaction. Credentials persist only in Keychain. Settings entry prefetches GET /models and refreshes a same-connection memory cache; URL/key changes invalidate its use, cancel stale requests and debounce input. A native selection page joins in-flight work and bypasses a pending debounce, filters names/IDs locally, pins the current choice above other rows and keeps Custom fixed in its navigation bar. Search ignores case, whitespace and ASCII hyphens, preserves version dots and other punctuation, and never changes the selected provider ID. Each presentation freezes its list and current ID while the cache refreshes. Custom entry works during loading, failure and empty results, returns to settings and focuses the existing ID. Internal navigation retains the connection; modal dismissal cancels loading and clears the in-memory credential. Cache identities keep endpoint and key digest, never the credential. Model generation requires explicit Send."
-    },
-    {
-      "id": "RichText",
-      "selector": ".mdv-rich-text",
-      "invariant": "Shared parsing, sanitization, highlighting, math, Mermaid and resources; independent anchors per message and reference. Selection conversion preserves semantic superscripts and subscripts, including footnote markers and selections within their own text.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "specification": "design/README.md#ai-对话"
     },
     {
       "id": "ConversationThread",
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": ".mdv-conversation",
-      "invariant": "User turns and quote snapshots are immutable; completed blocks stream without rebuilding earlier content; respect manual scrolling. Only the latest failed assistant turn can be retried, in place, without adding a user turn or changing later history.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "owns": [
+        "ConversationTurn"
+      ],
+      "invariants": [
+        "Sent turns and their reference snapshots remain immutable."
+      ],
+      "specification": "design/README.md#ai-对话"
     },
     {
       "id": "ConversationComposer",
+      "nativeOwners": [
+        "JustMarkdown/NativeComposerHost.swift",
+        "JustMarkdown/ConversationInput.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/native-agent.js",
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": ".mdv-composer",
-      "invariant": "One draft and explicit next-turn attachment. Software Return inserts a newline and the send button submits; physical Enter submits and Shift+Enter inserts a newline. IME confirmation and key repeats never submit; Enter during generation preserves new drafts and does not stop the reply. Detect physical presses natively, not by viewport geometry. Input text, reference marker and conversation content share the leading alignment; remove and send controls share the trailing alignment. No suggested-question or preset-prompt shortcut controls.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/ layout plus JustMarkdown/NativeComposerHost.swift and ConversationInput.swift"
+      "owns": [
+        "ContextAttachment"
+      ],
+      "invariants": [
+        "One draft and its next-turn reference share the native input bridge."
+      ],
+      "specification": "design/README.md#引用与输入"
     },
     {
       "id": "ContextAttachment",
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": ".mdv-composer-reference",
-      "invariant": "Selected context renders its complete rich content by default, with bounded internal scrolling and no line labels or one-line replacement. Marker, first content line and removal control align. The icons reserve space only near the opening; subsequent text and wide blocks reclaim the full width. The native scrollbar uses a thin rounded thumb without arrows or a visible track, shown during scrolling or pointer hover and fading after idle. Within-cell selections remain ordinary rich text. Multi-cell selections retain relative grid positions with empty boundary cells, clipped row spans and no unselected text or invented headers; selected blocks outside the table remain separate. Full tables preserve captions, merged cells, alignment and inline formatting. Whole-document context shows filename with disclosure. Global entry replaces abandoned selections with current-document context; sent references are immutable.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "uses": [
+        "RichText"
+      ],
+      "invariants": [
+        "Selection references preserve the complete selected content and its original structural relationships."
+      ],
+      "specification": "design/README.md#引用与输入"
     },
     {
       "id": "ConversationTurn",
-      "selector": ".mdv-turn",
-      "invariant": "Both question and reply use RichText. References and footnotes belong to that turn.",
-      "owns": [
-        "RequestStatus"
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
       ],
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "selector": ".mdv-turn",
+      "owns": [
+        "RequestStatus",
+        "DocumentChange"
+      ],
+      "uses": [
+        "RichText"
+      ],
+      "invariants": [
+        "Each turn owns its rendered content, references, anchors and request status."
+      ],
+      "specification": "design/README.md#ai-对话"
     },
     {
       "id": "RequestStatus",
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": "[data-component='RequestStatus']",
-      "state": [
-        "pending",
-        "streaming",
-        "failed",
-        "retrying",
-        "cooldown",
-        "complete",
-        "stopped"
+      "invariants": [
+        "Only the latest failed turn can replace its answer through an explicit retry."
       ],
-      "motion": [
-        "content"
-      ],
-      "invariant": "Inline concise reason and manual retry; no alert modal or raw service error. Retry reuses the immutable question, attachment and history snapshot in the same assistant turn, preserving unsent drafts. Partial replies stay until replacement content arrives; their action says regeneration. One active attempt, stopped through the shared composer control. Rate-limit cooldown only re-enables the button. New turns retire old retry actions. Incomplete model turns never execute tools. Applied tool effects remain visible after later failure or Stop; retry resumes from journaled results without executing the edit again. Offline fixtures belong to test targets, never product controls.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "specification": "design/README.md#请求反馈"
     },
     {
       "id": "DocumentChange",
+      "webOwners": [
+        "JustMarkdown/WebSource/agent/agent.js",
+        "JustMarkdown/WebSource/agent/agent.css"
+      ],
       "selector": ".mdv-proposal",
-      "invariant": "Show actual atomic tool edits and save status, not unexecuted suggestions. One AI batch is one transaction in the shared source history. Its Undo checks history order; bottom Undo/Redo updates the same card status. New editing clears redo; later text must never be overwritten to undo an older change. History events own current status; a delayed undo save acknowledgement must not overwrite a later redo.",
-      "nativeOwner": "JustMarkdown/WebSource/agent/agent.js; scripts/build_native_web.py"
+      "invariants": [
+        "Cards represent applied document edits and their current save and history state."
+      ],
+      "specification": "design/README.md#ai-对话"
+    },
+    {
+      "id": "RichText",
+      "webOwners": [
+        "JustMarkdown/WebSource/reader.js",
+        "JustMarkdown/WebSource/agent/agent.js"
+      ],
+      "selector": ".mdv-rich-text",
+      "invariants": [
+        "Content surfaces share the parser, sanitizer and offline extensions.",
+        "Message and reference anchors are scoped to their own rendered content."
+      ],
+      "specification": "design/README.md#文档渲染范围"
+    },
+    {
+      "id": "ModelSettings",
+      "nativeOwners": [
+        "JustMarkdown/ModelSettingsView.swift",
+        "JustMarkdown/ModelSelectionView.swift"
+      ],
+      "invariants": [
+        "One native modal owns settings navigation and blocks the underlying reader."
+      ],
+      "specification": "design/README.md#模型设置与系统提示"
     },
     {
       "id": "ModelConfigurationPrompt",
-      "selector": "[data-component='ModelConfigurationPrompt']",
-      "invariant": "Unconfigured AI/selection/edit entry shows a concise cancel/settings alert. Settings is explicit. Resume the original entry after successful configuration and closing transition, preserving quote and draft without submitting. No model request on open, cancel or settings save.",
-      "nativeOwner": "ReaderSession.swift and ReaderScreen system alert"
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift",
+        "JustMarkdown/ReaderSession.swift"
+      ],
+      "invariants": [
+        "Configuration resumes the original AI entry only for the same document and never submits a question."
+      ],
+      "specification": "design/README.md#请求反馈"
     },
     {
       "id": "DocumentClose",
-      "selector": "[data-component='DocumentClose']",
-      "nativeOwner": "ReaderScreen / ReaderSession / MarkdownDocument",
-      "invariant": "One top-trailing 44pt circular floating x aligned with the leading outline toggle; no toolbar. Flush the latest buffer, save, close, then return home. Save failure offers retry, explicitly destructive discard-and-close and cancel. More contains only model settings. Release file scope and cancel old document callbacks."
+      "nativeOwners": [
+        "JustMarkdown/ReaderScreen.swift",
+        "JustMarkdown/ReaderSession.swift"
+      ],
+      "invariants": [
+        "Returning home follows successful document closure or explicit discard after a failed save."
+      ],
+      "specification": "design/README.md#模型设置与系统提示"
     },
     {
       "id": "SourceHistory",
+      "nativeOwners": [
+        "JustMarkdown/ReaderWebView.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/source-history.js",
+        "JustMarkdown/WebSource/native-bridge.js"
+      ],
       "selector": ".mdv-source-editor",
-      "nativeOwner": "JustMarkdown/WebSource/source-history.js; ReaderSession; ReaderWKWebView",
-      "invariant": "One history for typing, composition, paste and atomic AI batches. Touch Undo/Redo in the source floating controls; edit-menu and Cmd+Z / Shift+Cmd+Z use the same buffer. New edits clear redo. Mode switching preserves history; document opening resets it. Preserve selection and editor scroll position. Diffs store only changed spans."
+      "invariants": [
+        "Typing, composition, paste, AI transactions, touch controls and keyboard shortcuts share one undo and redo history."
+      ],
+      "specification": "design/README.md#阅读与源码"
     }
-  ],
-  "webSource": "JustMarkdown/WebSource/reader.html"
+  ]
 }

@@ -1,6 +1,6 @@
 # 参与开发
 
-本指南说明开发环境、资源维护、测试和提交方法。应用介绍见 [README](README.md)，模块与数据约束见[架构说明](docs/native-architecture.md)。
+本指南说明开发环境、资源维护、测试和提交方法。应用介绍见 [README](README.md)，界面约定见[设计规范](design/README.md)，模块与数据流见[架构设计](docs/native-architecture.md)。
 
 ## 开发环境
 
