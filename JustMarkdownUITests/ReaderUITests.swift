@@ -589,7 +589,12 @@ final class ReaderUITests: XCTestCase {
         let editor = app.webViews.textViews["Markdown 源码"]
         XCTAssertTrue(editor.waitForExistence(timeout: 6))
         editor.tap()
-        typeSource("\n\nUnsaved close verification.\n", into: editor)
+        typeSource("Close check.", into: editor)
+        // Persistent write failure also affects autosave. Handle that error before
+        // testing the separate close/retry/discard flow, regardless of runner speed.
+        let autosaveAlert = app.alerts["无法完成操作"]
+        XCTAssertTrue(autosaveAlert.waitForExistence(timeout: 8))
+        autosaveAlert.buttons["好"].tap()
         app.buttons["CloseDocument"].tap()
         let alert = app.alerts["未能保存文档"]
         XCTAssertTrue(alert.waitForExistence(timeout: 8))
@@ -601,7 +606,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(alert.waitForExistence(timeout: 8))
         alert.buttons["取消"].tap()
         XCTAssertTrue(editor.waitForExistence(timeout: 5))
-        XCTAssertTrue((editor.value as? String)?.contains("Unsaved close verification.") == true)
+        XCTAssertTrue((editor.value as? String)?.contains("Close check.") == true)
         app.buttons["CloseDocument"].tap()
         XCTAssertTrue(alert.waitForExistence(timeout: 8))
         alert.buttons["放弃修改并关闭"].tap()
@@ -756,6 +761,7 @@ final class ReaderUITests: XCTestCase {
         let paragraph = app.webViews.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "这是一份可以实际滚动"))
             .firstMatch
         XCTAssertTrue(paragraph.waitForExistence(timeout: 25))
+        waitForEnabled(app.buttons["OutlineToggle"])
         paragraph.press(forDuration: 1.2)
         let selection = XCTAttachment(string: app.debugDescription)
         selection.name = "native-selection-menu-hierarchy"

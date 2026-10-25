@@ -2,7 +2,11 @@
 """Build, lint and run native tests on dedicated iPhone and iPad simulators."""
 
 import argparse
+import codecs
 import json
+import os
+import selectors
+import signal
 import subprocess
 import sys
 from datetime import datetime
@@ -23,6 +27,68 @@ def simulator_data(kind):
             text=True,
         ).stdout
     )
+
+
+def run_tests(arguments, log, inactivity_timeout=600):
+    """Stream Xcode output while preserving a complete log and detecting silence."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    with (
+        log.open("wb") as stream,
+        subprocess.Popen(
+            arguments,
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        ) as process,
+        selectors.DefaultSelector() as selector,
+    ):
+        selector.register(process.stdout, selectors.EVENT_READ)
+        completed = False
+        try:
+            while True:
+                if not selector.select(timeout=inactivity_timeout):
+                    message = (
+                        f"\nNo Xcode output for {inactivity_timeout} seconds; "
+                        "interrupting the test process and retaining diagnostics.\n"
+                    )
+                    stream.write(message.encode())
+                    stream.flush()
+                    print(message, end="", flush=True)
+                    return 1
+                chunk = os.read(process.stdout.fileno(), 65536)
+                if not chunk:
+                    break
+                stream.write(chunk)
+                stream.flush()
+                print(decoder.decode(chunk), end="", flush=True)
+            print(decoder.decode(b"", final=True), end="", flush=True)
+            try:
+                code = process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                print("Xcode closed its output without exiting; interrupting tests.", flush=True)
+                return 1
+            completed = True
+            return code
+        finally:
+            if not completed:
+                # SIGINT lets Xcode finish its result bundle before a forced stop.
+                try:
+                    os.killpg(process.pid, signal.SIGINT)
+                except ProcessLookupError:
+                    pass
+                try:
+                    remaining, _ = process.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    remaining, _ = process.communicate()
+                if remaining:
+                    stream.write(remaining)
+                    stream.flush()
+                    print(decoder.decode(remaining, final=True), end="", flush=True)
 
 
 def failure_details(bundle, device, output):
@@ -146,22 +212,23 @@ def main():
             str(bundle),
             "-parallel-testing-enabled",
             "NO",
+            "-test-timeouts-enabled",
+            "YES",
             "test",
         ]
-        with log.open("w") as stream:
-            process = subprocess.run(arguments, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT)
+        code = run_tests(arguments, log)
         results.append(
             {
                 "family": family,
                 "device": identifier,
                 "runtime": runtime["name"],
-                "passed": process.returncode == 0,
+                "passed": code == 0,
                 "resultBundle": str(bundle),
                 "log": str(log),
             }
         )
-        print(f"{family}: {'passed' if process.returncode == 0 else 'failed'}", flush=True)
-        if process.returncode != 0:
+        print(f"{family}: {'passed' if code == 0 else 'failed'}", flush=True)
+        if code != 0:
             failure_details(bundle, identifier, output)
             print(
                 "\n".join(log.read_text(errors="replace").splitlines()[-80:]),

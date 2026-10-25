@@ -8,6 +8,7 @@ private struct AgentFixture: Sendable {
     var status = 200
     var text = ""
     var delay: TimeInterval = 0
+    var waitsForCancellation = false
     var complete = true
     var headers: [String: String] = [:]
     var calls: [ModelToolCall] = []
@@ -51,6 +52,7 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let fixture = Self.queue.next(request)
+        if fixture.waitsForCancellation { return }
         DispatchQueue.global().asyncAfter(deadline: .now() + fixture.delay) { [self] in
             guard !lock.withLock({ stopped }) else { return }
             let response = HTTPURLResponse(
@@ -156,6 +158,7 @@ final class AgentFlowTests: XCTestCase {
         }
         await session.grant(root)
         await session.open(url)
+        _ = try XCTUnwrap(session.document, session.errorMessage ?? "The fixture document must open before rendering")
         let bridge = ReaderBridge(session: session)
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)
@@ -165,7 +168,12 @@ final class AgentFlowTests: XCTestCase {
         bridge.webView.frame = controller.view.bounds
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         controller.view.addSubview(bridge.webView)
-        try await wait { session.rendererReady && bridge.ready }
+        try await wait {
+            if let error = session.errorMessage {
+                throw NSError(domain: "ReaderFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
+            }
+            return session.rendererReady && bridge.ready
+        }
         addTeardownBlock { @MainActor in
             bridge.detach()
             window.isHidden = true
@@ -537,8 +545,7 @@ final class AgentFlowTests: XCTestCase {
     func testResponsesGlobalContextRefreshesAtSendAndSelectionCancelDoesNotLeak() async throws {
         AgentFixtureProtocol.queue.reset([AgentFixture(text: "**真实桥接的回答**。")])
         let (session, bridge, _, _) = try await reader("# 原始文档\n\nSELECTED_ONLY\n\nUNSELECTED\n", api: .responses)
-        _ = try await bridge.call("toggleMode")
-        try await wait { (try await bridge.call("diagnostics") as? [String: Any])?["mode"] as? String == "source" }
+        try await sourceMode(bridge)
         _ = try await bridge.webView.evaluateJavaScript(
             "(() => { const s=document.querySelector('.mdv-source-editor');s.focus();const i=s.value.indexOf('SELECTED_ONLY');s.setSelectionRange(i,i+13); })();"
         )
@@ -569,8 +576,7 @@ final class AgentFlowTests: XCTestCase {
         final class Credential { var value = "" }
         let key = Credential()
         let (session, bridge, _, _) = try await reader("# 标题\n\nSELECTED_ONLY\n\nUNSELECTED\n", modelKey: { key.value })
-        _ = try await bridge.call("toggleMode")
-        try await wait { (try await bridge.call("diagnostics") as? [String: Any])?["mode"] as? String == "source" }
+        try await sourceMode(bridge)
         let select =
             "(() => { const s=document.querySelector('.mdv-source-editor');s.focus();const i=s.value.indexOf('SELECTED_ONLY');s.setSelectionRange(i,i+13); })();"
         _ = try await bridge.webView.evaluateJavaScript(select)
@@ -603,11 +609,13 @@ final class AgentFlowTests: XCTestCase {
     }
 
     func testCollapseKeepsRequestAndExplicitStopCancelsIt() async throws {
-        AgentFixtureProtocol.queue.reset([AgentFixture(text: "晚到的回答。", delay: 2)])
+        AgentFixtureProtocol.queue.reset([AgentFixture(waitsForCancellation: true)])
         let (session, bridge, _, _) = try await reader("# 需要总结的文档\n\n正文。\n")
         _ = try await bridge.call("toggleAgent")
         try await send("总结全文。", bridge: bridge)
-        try await wait { session.agentTransport.activeID != nil }
+        try await wait {
+            session.agentTransport.activeID != nil && AgentFixtureProtocol.queue.requests().count == 1
+        }
         await session.closeAgent()
         XCTAssertNotNil(session.agentTransport.activeID)
         _ = try await bridge.call("toggleAgent")
@@ -620,7 +628,13 @@ final class AgentFlowTests: XCTestCase {
 
     private func sourceMode(_ bridge: ReaderBridge) async throws {
         _ = try await bridge.call("toggleMode")
-        try await wait { (try await bridge.call("diagnostics") as? [String: Any])?["mode"] as? String == "source" }
+        try await wait {
+            let mode = (try await bridge.call("diagnostics") as? [String: Any])?["mode"] as? String
+            let transitioning =
+                try await bridge.webView.evaluateJavaScript(
+                    "Boolean(document.querySelector('.mdv-app').dataset.modeTransition)") as? Bool
+            return mode == "source" && transitioning == false
+        }
     }
 
     private func editCall(_ text: String, before: String, after: String, id: String = "edit-1") throws -> ModelToolCall

@@ -23,6 +23,17 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    private func waitForMode(_ mode: String, bridge: ReaderBridge) async throws {
+        try await waitUntil {
+            let status = try await self.diagnostics(bridge)
+            let transitioning =
+                try await bridge.webView.evaluateJavaScript(
+                    "Boolean(document.querySelector('.mdv-app').dataset.modeTransition)") as? Bool
+            return status["mode"] as? String == mode && transitioning == false
+        }
+    }
+
+    @MainActor
     private func navigationReader() async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
         let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -56,7 +67,7 @@ final class WebReaderTests: XCTestCase {
         bridge.webView.frame = controller.view.bounds
         controller.view.addSubview(bridge.webView)
         try await waitUntil { bridge.ready && session.rendererReady }
-        if !session.outlineExpanded { _ = try await bridge.call("toggleOutline") }
+        if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
         return (session, bridge, window, root)
     }
 
@@ -89,6 +100,10 @@ final class WebReaderTests: XCTestCase {
         ] {
             bridge.webView.frame = CGRect(origin: .zero, size: size)
             try await waitUntil { bridge.ready && session.rendererReady }
+            try await waitUntil {
+                let viewport = try await bridge.webView.evaluateJavaScript("[innerWidth, innerHeight]") as? [Double]
+                return viewport == [size.width, size.height]
+            }
             if !session.outlineExpanded { _ = try await bridge.call("toggleOutline") }
             try await waitUntil {
                 try await bridge.webView.evaluateJavaScript(
@@ -117,13 +132,13 @@ final class WebReaderTests: XCTestCase {
                 "A short document must not create a blank scroll area: \(geometry)")
             XCTAssertLessThan(try XCTUnwrap(geometry["content"]), viewport)
             _ = try await bridge.call("toggleMode")
-            try await waitUntil { try await self.diagnostics(bridge)["mode"] as? String == "source" }
+            try await waitForMode("source", bridge: bridge)
             let sourceGeometry = try await bridge.webView.evaluateJavaScript(
                 "document.querySelector('.mdv-app').getBoundingClientRect().height")
             let sourceHeight = try XCTUnwrap(sourceGeometry as? Double)
             XCTAssertEqual(sourceHeight, viewport, accuracy: 1, "Source must use the same full viewport")
             _ = try await bridge.call("toggleMode")
-            try await waitUntil { try await self.diagnostics(bridge)["mode"] as? String == "preview" }
+            try await waitForMode("preview", bridge: bridge)
         }
         XCTAssertEqual(session.document?.text, markdown)
         await session.closeDocument()
@@ -245,7 +260,7 @@ final class WebReaderTests: XCTestCase {
         }
         let original = try XCTUnwrap(session.document?.text)
         _ = try await bridge.call("toggleMode")
-        try await waitUntil { try await self.diagnostics(bridge)["mode"] as? String == "source" }
+        try await waitForMode("source", bridge: bridge)
         // Use WebKit's editing operation, so actual input events create history.
         _ = try await bridge.webView.evaluateJavaScript(
             "const s=document.querySelector('.mdv-source-editor'); s.focus(); s.setSelectionRange(s.value.length,s.value.length); document.execCommand('insertText',false,'h'); document.execCommand('insertText',false,'i');"
@@ -274,9 +289,9 @@ final class WebReaderTests: XCTestCase {
         let pasteUndone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(pasteUndone, original + "hi", "Paste remains a separate operation")
         _ = try await bridge.call("toggleMode")
-        try await waitUntil { try await self.diagnostics(bridge)["mode"] as? String == "preview" }
+        try await waitForMode("preview", bridge: bridge)
         _ = try await bridge.call("toggleMode")
-        try await waitUntil { try await self.diagnostics(bridge)["mode"] as? String == "source" }
+        try await waitForMode("source", bridge: bridge)
         _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]])
         let pasteRedone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(pasteRedone, afterPaste)
@@ -361,7 +376,7 @@ final class WebReaderTests: XCTestCase {
             const links = [...document.querySelectorAll('[data-toc-target]')];
             const headings = links.map(link => document.getElementById(link.dataset.tocTarget));
             const frame = () => new Promise(requestAnimationFrame);
-            const settle = async () => {
+            const settle = async (ready = () => true) => {
               const started = performance.now();
               let previous = body.scrollTop, stable = 0;
               while (performance.now() - started < 1800) {
@@ -369,7 +384,7 @@ final class WebReaderTests: XCTestCase {
                 const position = body.scrollTop;
                 stable = Math.abs(position - previous) < .2 ? stable + 1 : 0;
                 previous = position;
-                if (stable >= 5 && performance.now() - started > 100) break;
+                if (stable >= 5 && performance.now() - started > 100 && ready()) break;
               }
             };
             const measure = () => {
@@ -380,10 +395,14 @@ final class WebReaderTests: XCTestCase {
                 centerError: row.top + row.height / 2 - (pane.top + body.clientTop + body.clientHeight / 2),
                 documentY: window.scrollY };
             };
-            const readAt = async index => {
+            const readAt = async (index, following = true) => {
               headings[index].scrollIntoView({ block: 'start', behavior: 'instant' });
               const documentY = window.scrollY;
-              await settle();
+              await settle(() => {
+                const current = measure();
+                const target = Math.max(0, Math.min(current.maximum, current.offset + current.centerError));
+                return current.current === links[index].textContent && (!following || Math.abs(current.offset - target) < 2);
+              });
               return { ...measure(), expectedDocumentY: documentY };
             };
             const centered = await readAt(17);
@@ -393,7 +412,7 @@ final class WebReaderTests: XCTestCase {
             await settle();
             const manualSameChapter = measure();
             // Momentum may change chapters after the reader starts browsing the outline.
-            const manualDuringMomentum = await readAt(18);
+            const manualDuringMomentum = await readAt(18, false);
             reader.dispatchEvent(new WheelEvent('wheel', { deltaY: 200, bubbles: true }));
             const resumed = await readAt(20);
             const trace = [], sequence = [28, 12, 30, 15, 29], started = performance.now();
@@ -541,25 +560,16 @@ final class WebReaderTests: XCTestCase {
         let before = try XCTUnwrap((status["anchor"] as? [String: Any])?["line"] as? Double)
         for expected in ["source", "preview", "source", "preview"] {
             _ = try await bridge.call("toggleMode")
-            try await waitUntil {
-                let result = try await bridge.call("diagnostics") as? [String: Any]
-                let transitioning =
-                    try await bridge.webView.evaluateJavaScript(
-                        "Boolean(document.querySelector('.mdv-app').dataset.modeTransition)") as? Bool
-                return result?["mode"] as? String == expected && transitioning == false
-            }
+            try await waitForMode(expected, bridge: bridge)
             let result = try await diagnostics(bridge)
             let after = try XCTUnwrap((result["anchor"] as? [String: Any])?["line"] as? Double)
             XCTAssertEqual(after, before, accuracy: 0.6, "Repeated switches must not accumulate drift")
         }
         _ = try await bridge.call("toggleMode")
-        try await waitUntil { session.mode == "source" }
+        try await waitForMode("source", bridge: bridge)
         _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 260])
         _ = try await bridge.call("toggleMode")
-        try await waitUntil {
-            let result = try await bridge.call("diagnostics") as? [String: Any]
-            return result?["mode"] as? String == "preview"
-        }
+        try await waitForMode("preview", bridge: bridge)
         let followed = try await diagnostics(bridge)
         let followedLine = try XCTUnwrap((followed["anchor"] as? [String: Any])?["line"] as? Double)
         XCTAssertEqual(followedLine, 260, accuracy: 1.5)
@@ -606,10 +616,7 @@ final class WebReaderTests: XCTestCase {
         XCTAssertTrue((agent["reference"] as? String ?? "").contains(status["selectedText"] as? String ?? ""))
         await session.closeAgent()
         _ = try await bridge.call("toggleMode")
-        try await waitUntil {
-            let result = try await bridge.call("diagnostics") as? [String: Any]
-            return result?["mode"] as? String == "source"
-        }
+        try await waitForMode("source", bridge: bridge)
         _ = try await bridge.call(
             "setSource",
             arguments: ["payload": "# Earlier section\n\nEarlier text.\n\n## Updated source\n\nSelected phrase.\n"])
