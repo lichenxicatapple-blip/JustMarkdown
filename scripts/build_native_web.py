@@ -32,6 +32,7 @@ def reader_design(spec):
         "floatingGap": "space.floatingGap",
         "outlineIcon": "size.outlineIcon",
         "homeMark": "size.homeMark",
+        "homeSlogan": "size.homeSlogan",
         "homeEntranceOffset": "space.homeEntranceOffset",
         "homeBrandGap": "space.homeBrandGap",
         "homeGroupGap": "space.homeGroupGap",
@@ -65,6 +66,8 @@ def vendor_assets():
     assets = json.loads((VENDOR / "assets.json").read_text())
     recorded = set()
     for asset in assets:
+        if asset.get("target", "web") not in {"web", "native"}:
+            raise ValueError(f"Unknown vendor target: {asset['file']}")
         checksums = {
             asset["file"]: asset["sha256"],
             asset["licenseFile"]: asset["licenseSha256"],
@@ -119,7 +122,7 @@ def web_localizations():
 
 def generate(destination):
     spec = json.loads((ROOT / "design/tokens.json").read_text())
-    assets = vendor_assets()
+    assets = [asset for asset in vendor_assets() if asset.get("target", "web") == "web"]
     declarations = [f"  {token['css']}: {token['value']};" for token in spec["tokens"].values()]
     for name, motion in spec["motion"].items():
         declarations += [

@@ -15,6 +15,7 @@
     <key>UIApplicationSupportsIndirectInputEvents</key><true/>
     <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
     <key>UILaunchScreen</key><dict/>
+    <key>UIAppFonts</key><array><string>Newsreader16pt-Regular.ttf</string></array>
     <key>UISupportedInterfaceOrientations</key><array>
         <string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string>
     </array>

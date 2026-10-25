@@ -120,5 +120,17 @@
     "license": "MIT",
     "sha256": "926e075a1745e1019813b8418b90183feea0c7b3782c85dceb4f246da999edc6",
     "licenseSha256": "655a4d5721dabe668d3ef640d5587d44534d370e7dc256d4f33740278dc710d5"
+  },
+  {
+    "file": "Newsreader16pt-Regular.ttf",
+    "url": "https://raw.githubusercontent.com/productiontype/Newsreader/cfcb4f7af0e52c25e8df2a2431814c8e5fe2e155/fonts/static/ttf/Newsreader16pt-Regular.ttf",
+    "licenseFile": "Newsreader.LICENSE",
+    "licenseURL": "https://raw.githubusercontent.com/productiontype/Newsreader/cfcb4f7af0e52c25e8df2a2431814c8e5fe2e155/OFL.txt",
+    "package": "Newsreader",
+    "version": "1.003",
+    "license": "OFL-1.1",
+    "target": "native",
+    "sha256": "0636887c9f72f77ce188f0b31029be58e65adae5a47e6d2887ad5020c2c75036",
+    "licenseSha256": "fdfad38143ec470553cae82a1e45320bdd1b9ec70415d37bd0171051d8a4ded8"
   }
 ]
