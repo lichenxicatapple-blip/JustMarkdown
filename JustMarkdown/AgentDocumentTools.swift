@@ -23,7 +23,6 @@ final class AgentDocumentTools {
     private weak var session: ReaderSession?
     private struct UndoRecord {
         let token: String
-        let before: String
         let after: String
     }
     private var undoRecords: [String: UndoRecord] = [:]
@@ -63,7 +62,7 @@ final class AgentDocumentTools {
                 !session.isClosingDocument
             else { return result(["error": "document_closed"]) }
             guard session.mode == "source" else { return result(["error": "read_only", "message": "请切换到源码后修改。"]) }
-            let current = try await currentText(session, token: token)
+            let current = try currentText(session, token: token)
             switch call.name {
             case "read_document":
                 guard try ModelWireFormat.object(Data(call.arguments.utf8)).isEmpty else {
@@ -93,10 +92,10 @@ final class AgentDocumentTools {
                 }
                 let id = UUID().uuidString.lowercased()
                 try Task.checkCancellation()
-                guard try await replace(session, expected: current, next: next, id: id, token: token) else {
+                guard replace(session, expected: current, next: next, id: id, token: token) else {
                     return result(["error": "stale_document", "message": "原文已变化，未执行这次修改。"])
                 }
-                undoRecords[id] = UndoRecord(token: token, before: current, after: next)
+                undoRecords[id] = UndoRecord(token: token, after: next)
                 await onChange(AgentDocumentChange(id: id, edits: args.edits, saved: nil))
                 let saved = await save(session, token: token)
                 var execution = result([
@@ -119,30 +118,24 @@ final class AgentDocumentTools {
         executing = true
         defer { executing = false }
         do {
-            guard let session, let record = undoRecords[id], record.token == token,
+            guard let session, let bridge = session.bridge, let record = undoRecords[id], record.token == token,
                 session.documentToken == token, !session.isClosingDocument
             else { return ["error": "stale", "message": String(localized: "This edit can no longer be undone.")] }
             guard session.mode == "source" else {
                 return ["error": "read_only", "message": String(localized: "Switch to source view to undo this edit.")]
             }
-            let current = try await currentText(session, token: token)
+            let current = try currentText(session, token: token)
             guard current == record.after else {
                 return [
                     "error": "stale",
                     "message": String(localized: "The document has other changes. This edit cannot be undone."),
                 ]
             }
-            if let bridge = session.bridge {
-                guard
-                    try await bridge.call("historyAction", arguments: ["payload": ["action": "undo", "id": id]])
-                        as? Bool == true
-                else {
-                    return [
-                        "error": "stale", "message": String(localized: "Undo later changes before undoing this edit."),
-                    ]
-                }
+            guard bridge.moveSourceHistory(forward: false, id: id) else {
+                return [
+                    "error": "stale", "message": String(localized: "Undo later changes before undoing this edit."),
+                ]
             }
-            session.sourceChanged(record.before, token: token)
             let saved = await save(session, token: token)
             return ["status": "undone", "saved": saved ? "true" : "false"]
         } catch {
@@ -152,31 +145,20 @@ final class AgentDocumentTools {
         }
     }
 
-    private func currentText(_ session: ReaderSession, token: String) async throws -> String {
-        let text = try await session.bridge?.call("flushSource") as? String ?? session.document?.text
-        guard session.documentToken == token, let text, session.document != nil, !session.isClosingDocument else {
+    private func currentText(_ session: ReaderSession, token: String) throws -> String {
+        guard session.documentToken == token, let bridge = session.bridge, let text = bridge.flushSource(),
+            session.document != nil, !session.isClosingDocument
+        else {
             throw ModelError.invalidResponse
         }
-        session.sourceChanged(text, token: token)
         return text
     }
 
     private func replace(_ session: ReaderSession, expected: String, next: String, id: String, token: String)
-        async throws -> Bool
+        -> Bool
     {
         guard session.documentToken == token, session.mode == "source", !session.isClosingDocument else { return false }
-        if let bridge = session.bridge {
-            let applied =
-                try await bridge.call(
-                    "applyDocumentEdit", arguments: ["payload": ["before": expected, "after": next, "id": id]])
-                as? Bool
-            guard applied == true else { return false }
-        } else if session.document?.text != expected {
-            return false
-        }
-        guard session.documentToken == token else { return false }
-        session.sourceChanged(next, token: token)
-        return true
+        return session.bridge?.applySourceEdit(before: expected, after: next, id: id) == true
     }
 
     private func save(_ session: ReaderSession, token: String) async -> Bool {

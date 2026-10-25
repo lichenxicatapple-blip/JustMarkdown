@@ -26,6 +26,10 @@ def replace_once(text, marker, replacement):
 
 def reader_design(spec):
     names = {
+        "sourceSize": "type.sourceSize",
+        "sourceHorizontalInset": "space.sourceHorizontalInset",
+        "sourceTopInset": "space.sourceTopInset",
+        "sourceBottomInset": "space.sourceBottomInset",
         "hitTarget": "size.hitTarget",
         "floatingIcon": "size.floatingIcon",
         "compactFloatingIcon": "size.compactFloatingIcon",
@@ -330,7 +334,6 @@ def generate(destination):
     )
     (package / "localization.js").write_text(localization)
     shutil.copy2(SOURCE / "agent/agent.js", package / "agent.js")
-    shutil.copy2(SOURCE / "source-history.js", package / "source-history.js")
     for asset in assets:
         for key in ["file", "licenseFile"]:
             shutil.copy2(VENDOR / asset[key], package / asset[key])

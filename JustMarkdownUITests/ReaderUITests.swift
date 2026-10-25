@@ -48,6 +48,44 @@ final class ReaderUITests: XCTestCase {
         if allow.waitForExistence(timeout: 5) { allow.tap() }
     }
 
+    func testNativeSourceFillsViewportAndFoldsControlsDuringInput() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        let web = app.webViews.firstMatch
+        XCTAssertEqual(editor.frame.minX, web.frame.minX, accuracy: 1)
+        XCTAssertEqual(editor.frame.maxX, web.frame.maxX, accuracy: 1)
+        XCTAssertEqual(editor.frame.maxY, web.frame.maxY, accuracy: 1)
+        record("native-source-full-page")
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["GlobalAI"].exists)
+        editor.typeText("Native source input.\n")
+        record("native-source-keyboard-folded-tools")
+        let inserted = editor.value as? String
+        editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+        showTools(app)
+        app.buttons["SourceUndo"].tap()
+        XCTAssertTrue(editor.value as? String == inserted, "Consecutive keyboard deletions undo together")
+        showTools(app)
+        XCTAssertTrue(app.buttons["SourceUndo"].isEnabled)
+        XCTAssertGreaterThanOrEqual(app.buttons["SourceUndo"].frame.minX, 0)
+        record("native-source-keyboard-expanded-tools")
+        app.buttons["ModeToggle"].tap()
+        XCTAssertTrue(
+            app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Native source input."))
+                .firstMatch.waitForExistence(timeout: 10))
+    }
+
     func testPrivacyPolicyHomeEntryAndLocalizedContent() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -177,7 +215,7 @@ final class ReaderUITests: XCTestCase {
 
         showTools(app)
         app.buttons["ModeToggle"].tap()
-        let editor = app.webViews.textViews["Markdown source"]
+        let editor = app.textViews["SourceEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
         XCTAssertTrue((editor.value as? String ?? "").hasPrefix("# Markdown 长文阅读与技术笔记"))
         showTools(app)
@@ -268,7 +306,7 @@ final class ReaderUITests: XCTestCase {
             XCTWaiter.wait(
                 for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", "切换到预览"), object: mode)],
                 timeout: 5), .completed)
-        let editor = app.webViews.textViews["Markdown 源码"]
+        let editor = app.textViews["SourceEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
         XCTAssertEqual(mode.frame.origin.x, originalModeFrame.origin.x, accuracy: 0.5)
         XCTAssertEqual(mode.frame.origin.y, originalModeFrame.origin.y, accuracy: 0.5)
@@ -591,7 +629,7 @@ final class ReaderUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)).tap()
         showTools(app)
         app.buttons["ModeToggle"].tap()
-        let editor = app.webViews.textViews["Markdown 源码"]
+        let editor = app.textViews["SourceEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 6))
         editor.tap()
         editor.typeText("\n\nSaved by closing the document.\n")
@@ -616,7 +654,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
         showTools(app)
         app.buttons["ModeToggle"].tap()
-        let editor = app.webViews.textViews["Markdown 源码"]
+        let editor = app.textViews["SourceEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 6))
         editor.tap()
         typeSource("Close check.", into: editor)
@@ -721,7 +759,7 @@ final class ReaderUITests: XCTestCase {
         showTools(app)
         XCTAssertFalse(app.buttons["SourceUndo"].exists)
         app.buttons["ModeToggle"].tap()
-        let editor = app.webViews.textViews["Markdown 源码"]
+        let editor = app.textViews["SourceEditor"]
         XCTAssertTrue(editor.waitForExistence(timeout: 8))
         showTools(app)
         XCTAssertFalse(app.buttons["SourceUndo"].isEnabled)
@@ -786,7 +824,7 @@ final class ReaderUITests: XCTestCase {
         app.webViews.buttons["收起对话"].tap()
         showTools(app)
         app.buttons["ModeToggle"].tap()
-        XCTAssertTrue(app.webViews.textViews["Markdown 源码"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textViews["SourceEditor"].waitForExistence(timeout: 8))
         showTools(app)
         app.buttons["GlobalAI"].tap()
         input.tap()
@@ -989,6 +1027,41 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
         XCTAssertEqual(input.value as? String, "unsent next question")
         record("agent-reopened-history")
+    }
+
+    func testSourceHardwareKeyboardShortcuts() throws {
+        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Physical key injection requires iPad")
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["JUSTMARKDOWN_HARDWARE_KEYBOARD_TESTS"] == "1",
+            "Requires a physical keyboard capable test environment")
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.15)).tap()
+        let original = editor.value as? String
+        editor.typeText("native")
+        XCTAssertTrue(app.buttons["ToolsToggle"].exists)
+        XCTAssertFalse(app.buttons["GlobalAI"].exists)
+        let edited = editor.value as? String
+        XCTAssertNotEqual(edited, original)
+        editor.typeKey(XCUIKeyboardKey(rawValue: "z"), modifierFlags: .command)
+        XCTAssertTrue(editor.value as? String == original, "Command-Z uses the shared source history")
+        editor.typeKey(XCUIKeyboardKey(rawValue: "z"), modifierFlags: [.command, .shift])
+        XCTAssertTrue(editor.value as? String == edited, "Command-Shift-Z redoes the same edit")
+        let length = (edited ?? "").utf16.count
+        editor.typeKey(.return, modifierFlags: [])
+        XCTAssertEqual((editor.value as? String ?? "").utf16.count, length + 1)
+        record("source-keyboard-shortcuts-folded-tools")
+        showTools(app)
+        record("source-keyboard-shortcuts-expanded-tools")
     }
 
     func testQuestionHardwareKeyboardReturn() throws {

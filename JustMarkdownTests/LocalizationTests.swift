@@ -84,7 +84,6 @@ final class LocalizationTests: XCTestCase {
                   const { t, formatSeconds } = window.JustMarkdownLocalization;
                   return { language: document.documentElement.lang,
                     contents: document.querySelector('.mdv-outline').getAttribute('aria-label'),
-                    source: document.querySelector('.mdv-source-editor').getAttribute('aria-label'),
                     send: document.querySelector('.mdv-agent-send').getAttribute('aria-label'),
                     retry: t('Retry in {duration}', { duration: formatSeconds(1) }),
                     author: document.querySelector('.mdv-article span').textContent };
@@ -93,13 +92,15 @@ final class LocalizationTests: XCTestCase {
             let values = try XCTUnwrap(result as? [String: String])
             XCTAssertEqual(values["language"], language)
             XCTAssertEqual(values["contents"], contents)
-            XCTAssertEqual(values["source"], source)
+            let nativeBundle = try localizedBundle(language)
+            XCTAssertEqual(String(localized: "Markdown source", bundle: nativeBundle), source)
+            XCTAssertEqual(bridge.sourceEditor.textView.accessibilityLabel, String(localized: "Markdown source"))
             XCTAssertEqual(values["send"], send)
             // ICU versions may use either 秒 or 秒钟 for the long Chinese unit.
             XCTAssertNotNil(values["retry"]?.range(of: retry, options: .regularExpression))
             XCTAssertEqual(values["author"], "作者自己的文字")
             _ = try await bridge.call("toggleMode")
-            let sourceText = try await bridge.call("flushSource") as? String
+            let sourceText = bridge.flushSource()
             XCTAssertEqual(sourceText, markdown)
             XCTAssertEqual(session.document?.text, markdown)
             await session.closeDocument()

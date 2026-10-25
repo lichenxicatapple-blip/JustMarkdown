@@ -1,6 +1,5 @@
     let nativeToken = '';
     let nativeDocumentName = ''; 
-    let sourceTimer = 0;
     let nativeSymbols = {};
     function postNative(message) { window.webkit?.messageHandlers.reader.postMessage(message); }
     function prepareLocalResources(fragment, documentContent = false) {
@@ -20,16 +19,6 @@
         });
       });
     }
-    function flushSource() {
-      clearTimeout(sourceTimer);
-      postNative({type:'source', text:sourceEditor.value, token:nativeToken});
-      return sourceEditor.value;
-    }
-    sourceEditor.addEventListener('input', () => { clearTimeout(sourceTimer); sourceTimer = setTimeout(flushSource, 150); });
-    sourceEditor.addEventListener('keyup', event => { if (event.key === 'Tab') flushSource(); });
-    app.addEventListener('mdv-source-history', event => {
-      postNative({ type: 'sourceHistory', ...event.detail, token: nativeToken });
-    });
     function askNative(text) {
       readSelection();
       const selected = selectionAttachment || (text ? { text, markdown: text, mode: displayedMode } : null);
@@ -70,30 +59,40 @@
         nativeToken = document.token;
         nativeDocumentName = document.name || '';
         pendingNativeAgentEntry = null;
-        clearTimeout(sourceTimer); renderedMarkdown = null; sourceHistory.reset(document.text);
-        sourceEditor.setAttribute('aria-label',t('Markdown source'));
+        renderedMarkdown = null; documentText = document.text;
+        nativeSourcePosition = { line: 0, y: 0, atStart: true };
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
         readingLayout.style.removeProperty('opacity'); delete app.dataset.modeTransition;
         state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;
         selection = ''; pinnedAnchor = null; lastPosition = null; transitionAnchor = null;
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument(); render(); await documentReady;
-        window.scrollTo(0,0); sourceEditor.scrollTop = 0;
+        window.scrollTo(0,0);
         window.lucide.createIcons(); updateSymbols();
         postNative({type:'documentReady',token:nativeToken});
         return this.diagnostics();
       },
-      toggleMode() { switchMode(state.mode === 'preview' ? 'source' : 'preview'); },
+      toggleMode(payload) {
+        if (payload?.anchor) nativeSourcePosition = payload.anchor;
+        switchMode(state.mode === 'preview' ? 'source' : 'preview');
+      },
       toggleOutline() {
         if (state.mode !== 'preview' || !headings.length) return;
         state.outline = !state.outline; render();
       },
       suppressSelection() { readSelection(); },
-      askSelection(text) {
-        const selected = state.mode === 'source'
-          ? sourceEditor.value.slice(sourceEditor.selectionStart,sourceEditor.selectionEnd)
-          : window.getSelection()?.toString();
-        askNative(text || selected || '');
+      askSelection(text) { askNative(text || window.getSelection()?.toString() || ''); },
+      askSourceSelection(payload) {
+        if (displayedMode !== 'source') return;
+        const reference = sourceAttachment(payload);
+        if (reference.text.trim()) agentExperience.attach(reference, reference.rect);
+      },
+      async sourceState(payload) {
+        if (payload.token !== nativeToken) return false;
+        documentText = payload.text;
+        for (const detail of payload.events || []) app.dispatchEvent(new CustomEvent('mdv-source-history', { detail }));
+        if (displayedMode === 'preview') { updateDocument(); render(); await documentReady; }
+        return true;
       },
       toggleAgent() { agentExperience.toggleGlobal(); },
       resolveAgentEntry(payload) {
@@ -128,29 +127,12 @@
         nativeUndoRequests.delete(payload.id);
         resolve?.(payload.result);
       },
-      applyDocumentEdit(payload) {
-        if (displayedMode !== 'source' || state.mode !== 'source' || sourceEditor.value !== payload.before) return false;
-        if (!sourceHistory.apply(payload.before, payload.after, { id: payload.id })) return false;
-        flushSource();
-        if (!reducedMotion.matches) {
-          sourceEditor.dataset.agentApplied = 'true';
-          setTimeout(() => { delete sourceEditor.dataset.agentApplied; }, motion.editFeedback.duration);
-        }
-        return true;
-      },
-      historyAction(payload) {
-        if (displayedMode !== 'source' || state.mode !== 'source') return false;
-        const moved = payload.action === 'undo' ? sourceHistory.undo(payload.id) : payload.action === 'redo' && sourceHistory.redo();
-        if (moved) flushSource();
-        return moved;
-      },
       agentDiagnostics() {
         return { open: state.agent, modal: agent.hasAttribute('data-modal-active'), draft: agent.querySelector('textarea').value,
           reference: agent.querySelector('.mdv-composer-reference').textContent, referenceHTML: agent.querySelector('.mdv-composer-reference').innerHTML,
           turns: Array.from(agent.querySelectorAll('.mdv-turn')).map(turn => ({ role: turn.dataset.role, state: turn.dataset.state, text: turn.textContent, html: turn.innerHTML })),
           markup: agent.innerHTML };
       },
-      flushSource,
       reloadResources() {
         reader.querySelectorAll('img[src^="jm-resource:"]').forEach(image => { image.src = `jm-resource://${nativeToken}/image?path=${encodeURIComponent(image.dataset.sourcePath)}&revision=${Date.now()}`; });
       },
@@ -160,11 +142,10 @@
         Object.entries(theme.palette || {}).forEach(([name, value]) => app.style.setProperty('--mdv-' + name, value));
         updateSymbols();
       },
-      async setSource(text) { sourceHistory.apply(sourceEditor.value, text); flushSource(); if (state.mode === 'preview') { updateDocument(); render(); await documentReady; } },
       async ready() { await documentReady; return true; },
       diagnostics() {
         const unsafeTags = Array.from(reader.querySelectorAll('script,iframe,form,style')).filter(node => node.tagName.toLowerCase() !== 'style' || !node.closest('.mdv-mermaid svg')).length;
-        return {mode:displayedMode, targetMode:state.mode, history:sourceHistory.state(), anchor:captureReadingPosition(), outline:state.outline && headings.length > 0, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:Array.from(reader.querySelectorAll('img[src^="jm-resource:"]')).map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:sourceEditor.value, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
+        return {mode:displayedMode, targetMode:state.mode,  anchor:captureReadingPosition(), outline:state.outline && headings.length > 0, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:Array.from(reader.querySelectorAll('img[src^="jm-resource:"]')).map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:documentText, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
       },
       async scrollToSourceLine(line) {
         await documentReady; pinnedAnchor = null; lastPosition = null;

@@ -29,7 +29,10 @@ final class WebReaderTests: XCTestCase {
             let transitioning =
                 try await bridge.webView.evaluateJavaScript(
                     "Boolean(document.querySelector('.mdv-app').dataset.modeTransition)") as? Bool
-            return status["mode"] as? String == mode && transitioning == false
+            let editorReady =
+                mode != "source"
+                || (!bridge.sourceEditor.textView.isHidden && bridge.sourceEditor.textView.isUserInteractionEnabled)
+            return status["mode"] as? String == mode && transitioning == false && editorReady
         }
     }
 
@@ -192,7 +195,27 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    func testFailedSourceSynchronizationKeepsCurrentDocumentAndRecentHistory() async throws {
+    func testSavingBeforeRendererReadyPreservesTheNativeWorkingText() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("early-save.md")
+        let text = "# Original\n\n尚未完成 Web 渲染时，保存仍必须保留原文。\n"
+        try Data(text.utf8).write(to: url)
+        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        await session.open(url)
+        let bridge = ReaderBridge(session: session)
+        defer { bridge.detach() }
+        XCTAssertFalse(bridge.ready)
+        let saved = await session.flushChanges()
+        XCTAssertTrue(saved)
+        XCTAssertEqual(session.document?.text, text)
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), text)
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testSwitchingDocumentsSavesNativeBufferWithoutAWebSourceRead() async throws {
         let (session, bridge, window, root) = try await navigationReader()
         defer {
             bridge.detach()
@@ -200,39 +223,25 @@ final class WebReaderTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         let original = try XCTUnwrap(session.document)
-        let token = session.documentToken
         let history = session.recentDocuments.documents
         let incoming = root.appendingPathComponent("next.md")
         try Data("# Next document\n".utf8).write(to: incoming)
+        let text = "# Pending native edits\n"
+        bridge.sourceEditor.textView.selectedRange = NSRange(location: 0, length: original.text.utf16.count)
+        bridge.sourceEditor.textView.insertText(text)
         _ = try await bridge.webView.evaluateJavaScript(
-            """
-            window.readerTestFlushSource = window.JustMarkdown.flushSource;
-            document.querySelector('.mdv-source-editor').value = '# Pending edits\\n';
-            window.JustMarkdown.flushSource = () => { throw new Error('source unavailable'); };
-            void 0;
-            """)
-
-        await session.open(incoming)
-        XCTAssertTrue(session.document === original, "A failed source read must not close the current document")
-        XCTAssertEqual(session.documentToken, token)
-        XCTAssertEqual(session.recentDocuments.documents, history)
-        XCTAssertNotNil(session.errorMessage)
-        XCTAssertFalse(original.documentState.contains(.closed))
-        XCTAssertEqual(try String(contentsOf: incoming, encoding: .utf8), "# Next document\n")
-
-        _ = try await bridge.webView.evaluateJavaScript(
-            "window.JustMarkdown.flushSource = window.readerTestFlushSource; void 0;")
-        // Retry after the source bridge recovers; no failed-open entry was recorded.
+            "window.JustMarkdown.sourceState = () => { throw new Error('renderer unavailable'); }; void 0;")
         await session.open(incoming)
         XCTAssertEqual(session.document?.fileURL, incoming)
         XCTAssertEqual(session.recentDocuments.documents.count, history.count + 1)
-        XCTAssertEqual(try String(contentsOf: original.fileURL, encoding: .utf8), "# Pending edits\n")
+        XCTAssertEqual(try String(contentsOf: original.fileURL, encoding: .utf8), text)
+        XCTAssertEqual(try String(contentsOf: incoming, encoding: .utf8), "# Next document\n")
         session.bridge = nil
         await session.closeDocument()
     }
 
     @MainActor
-    func testCloseFlushesLatestSourceBufferBeforeDebounceFires() async throws {
+    func testCloseCommitsMarkedNativeTextBeforeSaving() async throws {
         let (session, bridge, window, root) = try await navigationReader()
         defer {
             bridge.detach()
@@ -240,10 +249,10 @@ final class WebReaderTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         let url = try XCTUnwrap(session.document?.fileURL)
-        let text = "# Latest buffer\n\nNot yet delivered by the source debounce.\n"
-        _ = try await bridge.webView.callAsyncJavaScript(
-            "document.querySelector('.mdv-source-editor').value = text;",
-            arguments: ["text": text], in: nil, contentWorld: .page)
+        let editor = bridge.sourceEditor.textView
+        let text = "# 最新内容\n\n尚在输入法组合中的原生文本。\n"
+        editor.selectedRange = NSRange(location: 0, length: editor.text.utf16.count)
+        editor.setMarkedText(text, selectedRange: NSRange(location: text.utf16.count, length: 0))
         XCTAssertNotEqual(session.document?.text, text)
         await session.closeDocument()
         XCTAssertNil(session.document)
@@ -261,42 +270,43 @@ final class WebReaderTests: XCTestCase {
         let original = try XCTUnwrap(session.document?.text)
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
-        // Use WebKit's editing operation, so actual input events create history.
-        _ = try await bridge.webView.evaluateJavaScript(
-            "const s=document.querySelector('.mdv-source-editor'); s.focus(); s.setSelectionRange(s.value.length,s.value.length); document.execCommand('insertText',false,'h'); document.execCommand('insertText',false,'i');"
-        )
+        let editor = bridge.sourceEditor.textView
+        editor.becomeFirstResponder()
+        editor.selectedRange = NSRange(location: original.utf16.count, length: 0)
+        editor.insertText("h")
+        editor.insertText("i")
         try await waitUntil { session.canUndoSource }
         let typed = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(typed, original + "hi")
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo"]])
+        _ = bridge.moveSourceHistory(forward: false)
         let undone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(undone, original)
         XCTAssertTrue(session.canRedoSource)
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]])
+        _ = bridge.moveSourceHistory(forward: true)
         let afterPaste = original + "hi\nPasted **text**.\n"
-        _ = try await bridge.webView.callAsyncJavaScript(
-            "const s=document.querySelector('.mdv-source-editor'); s.dispatchEvent(new InputEvent('beforeinput',{bubbles:true,inputType:'insertFromPaste'})); s.value=text; s.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste'}));",
-            arguments: ["text": afterPaste], in: nil, contentWorld: .page)
+        let clipboard = UIPasteboard.general.items
+        defer { UIPasteboard.general.items = clipboard }
+        UIPasteboard.general.string = "\nPasted **text**.\n"
+        editor.paste(nil)
+        try await waitUntil { session.document?.text == afterPaste }
         let afterAgent = afterPaste.replacingOccurrences(of: "Pasted **text**.", with: "Rewritten **text**.")
             .replacingOccurrences(of: "# Navigation", with: "# Changed title")
-        _ = try await bridge.call(
-            "applyDocumentEdit",
-            arguments: ["payload": ["before": afterPaste, "after": afterAgent, "id": "one-agent-batch"]])
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo", "id": "one-agent-batch"]])
+        _ = bridge.applySourceEdit(before: afterPaste, after: afterAgent, id: "one-agent-batch")
+        _ = bridge.moveSourceHistory(forward: false, id: "one-agent-batch")
         let batchUndone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(batchUndone, afterPaste, "All edits in one Agent batch undo together")
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo"]])
+        _ = bridge.moveSourceHistory(forward: false)
         let pasteUndone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(pasteUndone, original + "hi", "Paste remains a separate operation")
         _ = try await bridge.call("toggleMode")
         try await waitForMode("preview", bridge: bridge)
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]])
+        _ = bridge.moveSourceHistory(forward: true)
         let pasteRedone = try await diagnostics(bridge)["source"] as? String
         XCTAssertEqual(pasteRedone, afterPaste)
-        _ = try await bridge.call("setSource", arguments: ["payload": afterPaste + "New branch."])
-        let result = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]]) as? Bool
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: afterPaste + "New branch.")
+        let result = bridge.moveSourceHistory(forward: true)
         XCTAssertEqual(result, false)
         await session.flushChanges()
         XCTAssertEqual(session.document?.text, afterPaste + "New branch.")
@@ -315,7 +325,7 @@ final class WebReaderTests: XCTestCase {
             "", "Plain reading content.\n", "# Document title\n\nReading content.\n",
             "```markdown\n## This is code, not a heading\n```\n",
         ] {
-            _ = try await bridge.call("setSource", arguments: ["payload": markdown])
+            _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: markdown)
             try await waitUntil { !session.hasOutline && !session.outlineExpanded }
             _ = try await bridge.call("toggleOutline")
             let status = try await diagnostics(bridge)
@@ -338,7 +348,7 @@ final class WebReaderTests: XCTestCase {
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
         let edited = "Reading content.\n\n## Added section\n\nMore content.\n"
-        _ = try await bridge.call("setSource", arguments: ["payload": edited])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: edited)
         _ = try await bridge.call("toggleMode")
         try await waitForMode("preview", bridge: bridge)
         try await waitUntil { session.hasOutline && session.outlineExpanded }
@@ -346,7 +356,7 @@ final class WebReaderTests: XCTestCase {
         XCTAssertEqual(editedStatus["headings"] as? [String], ["Added section"])
 
         let emptyHeading = "Reading content.\n\n##\n"
-        _ = try await bridge.call("setSource", arguments: ["payload": emptyHeading])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: emptyHeading)
         try await waitUntil { session.hasOutline }
         let status = try await diagnostics(bridge)
         XCTAssertEqual(status["headings"] as? [String], [""])
@@ -636,7 +646,7 @@ final class WebReaderTests: XCTestCase {
                 <iframe src="https://example.test"></iframe>
 
                 """
-        _ = try await bridge.call("setSource", arguments: ["payload": edited])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: edited)
         await session.flushChanges()
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), edited)
         status = try await diagnostics(bridge)
@@ -668,15 +678,11 @@ final class WebReaderTests: XCTestCase {
         await session.closeAgent()
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
-        _ = try await bridge.call(
-            "setSource",
-            arguments: ["payload": "# Earlier section\n\nEarlier text.\n\n## Updated source\n\nSelected phrase.\n"])
-        _ = try await bridge.webView.evaluateJavaScript(
-            """
-            const editor = document.querySelector('.mdv-source-editor');
-            const start = editor.value.indexOf('Selected phrase');
-            editor.setSelectionRange(start, start + 'Selected phrase'.length);
-            """)
+        _ = bridge.sourceEditor.replace(
+            expected: bridge.sourceEditor.history.text,
+            with: "# Earlier section\n\nEarlier text.\n\n## Updated source\n\nSelected phrase.\n")
+        bridge.sourceEditor.textView.selectedRange = (bridge.sourceEditor.history.text as NSString).range(
+            of: "Selected phrase")
         _ = try await bridge.call("askSelection")
         try await waitUntil { session.agentOpen }
         let sourceAgentResult = try await bridge.call("agentDiagnostics")

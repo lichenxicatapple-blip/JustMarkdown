@@ -52,7 +52,8 @@
     {
       "id": "DocumentSurface",
       "nativeOwners": [
-        "JustMarkdown/ReaderWebView.swift"
+        "JustMarkdown/ReaderWebView.swift",
+        "JustMarkdown/SourceEditor.swift"
       ],
       "webOwners": [
         "JustMarkdown/WebSource/reader.html",
@@ -287,15 +288,11 @@
     {
       "id": "SourceHistory",
       "nativeOwners": [
-        "JustMarkdown/ReaderWebView.swift"
+        "JustMarkdown/SourceHistory.swift",
+        "JustMarkdown/SourceEditor.swift"
       ],
-      "webOwners": [
-        "JustMarkdown/WebSource/source-history.js",
-        "JustMarkdown/WebSource/native-bridge.js"
-      ],
-      "selector": ".mdv-source-editor",
       "invariants": [
-        "Typing, composition, paste, AI transactions, touch controls and keyboard shortcuts share one undo and redo history."
+        "The native document model owns one working text and one undo history for typing, composition, paste, AI transactions, system editing actions and touch controls."
       ],
       "specification": "design/README.md#阅读与源码"
     },

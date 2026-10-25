@@ -44,7 +44,7 @@
       let frame = 0;
       let trackUntil = 0;
       function schedule() { if (!frame) frame = requestAnimationFrame(sync); }
-      function trackLayout() { trackUntil = performance.now() + 350; schedule(); }
+      function trackLayout() { trackUntil = performance.now() + Math.max(motion.modeOut.duration + motion.modeIn.duration, motion.agentPanel.duration, motion.layout.duration); schedule(); }
       function register(field, id) {
         const entry = { field, id, epoch: 0 };
         entries.set(id, entry);
@@ -101,8 +101,13 @@
             fontSize: parseFloat(style.fontSize), lineHeight: parseFloat(style.lineHeight),
             top: parseFloat(style.paddingTop), right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom), left: parseFloat(style.paddingLeft) });
         }
-        const state = JSON.stringify(states);
-        if (state !== previous) { previous = state; postNative({ type: 'inputLayout', inputs: states }); }
+        const box = source.getBoundingClientRect();
+        const sourceState = { type: 'sourceLayout', token: nativeToken,
+          visible: displayedMode === 'source', interactive: state.mode === displayedMode && !app.dataset.modeTransition && !source.closest('[inert]'),
+          opacity: Number(getComputedStyle(readingLayout).opacity),
+          x: box.x, y: box.y, width: box.width, height: box.height };
+        const fingerprint = JSON.stringify([states, sourceState]);
+        if (fingerprint !== previous) { previous = fingerprint; postNative({ type: 'inputLayout', inputs: states }); postNative(sourceState); }
         if (performance.now() < trackUntil) schedule();
       }
       const observer = new MutationObserver(schedule);

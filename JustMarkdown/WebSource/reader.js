@@ -87,9 +87,8 @@
     let selectionAttachment = null;
     const reader = app.querySelector('.mdv-article');
     const source = app.querySelector('.mdv-source-panel');
-    const sourceEditor = app.querySelector('.mdv-source-editor');
-    const sourceHistory = window.JustMarkdownSourceHistory.create({ editor: sourceEditor,
-      onState: detail => app.dispatchEvent(new CustomEvent('mdv-source-history', { detail })) });
+    let documentText = '';
+    let nativeSourcePosition = { line: 0, y: 0, atStart: true };
     const workspace = app.querySelector('.mdv-workspace');
     const agent = app.querySelector('.mdv-agent');
     const readingLayout = app.querySelector('.mdv-reading-layout');
@@ -114,39 +113,15 @@
     const enhancementRevisions = new WeakMap();
     let diagramSequence = 0;
     const diagramSources = new WeakMap();
-    const sourceMeasure = document.createElement('div');
-    sourceMeasure.className = 'mdv-source-measure';
-    sourceMeasure.setAttribute('aria-hidden', 'true');
-    sourceMeasure.inert = true;
-    app.append(sourceMeasure);
-    let measurementKey = '';
-    let sourceLines = [];
+    const colorProbe = document.createElement('span');
+    colorProbe.hidden = true;
+    app.append(colorProbe);
     let lastPosition = null;
     let pinnedAnchor = null;
     let positionFrame = 0;
     const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
-    function measureSource() {
-      const style = getComputedStyle(sourceEditor);
-      const properties = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wordSpacing', 'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize', 'textIndent', 'textAlign', 'direction', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'];
-      const key = JSON.stringify([sourceEditor.value, sourceEditor.clientWidth, ...properties.map(property => style[property])]);
-      if (key === measurementKey) return sourceLines;
-      measurementKey = key;
-      properties.forEach(property => { sourceMeasure.style[property] = style[property]; });
-      sourceMeasure.style.width = `${sourceEditor.clientWidth}px`;
-      sourceMeasure.replaceChildren(...sourceEditor.value.split('\n').map(line => {
-        const span = document.createElement('span');
-        span.textContent = line || '\u200b';
-        return span;
-      }));
-      const top = sourceMeasure.getBoundingClientRect().top;
-      sourceLines = Array.from(sourceMeasure.children, line => {
-        const rect = line.getBoundingClientRect();
-        return { top: rect.top - top, height: rect.height };
-      });
-      return sourceLines;
-    }
     function viewportSnapshot() {
-      return { mode: displayedMode, value: sourceEditor.value, windowY: window.scrollY, editorY: sourceEditor.scrollTop, width: displayedMode === 'source' ? sourceEditor.clientWidth : reader.clientWidth };
+      return { mode: displayedMode, value: documentText, windowY: window.scrollY, width: reader.clientWidth };
     }
     function unchangedViewport() {
       if (!lastPosition) return false;
@@ -171,17 +146,8 @@
       if (positioning && transitionAnchor) return { ...transitionAnchor };
       // Keep the same semantic anchor on an unchanged round trip, even when an edge
       // clamps scrolling or one image occupies far more space than its source line.
+      if (displayedMode === 'source') return { ...nativeSourcePosition };
       if (unchangedViewport()) return { ...lastPosition.anchor };
-      if (displayedMode === 'source') {
-        const lines = measureSource();
-        const rect = sourceEditor.getBoundingClientRect();
-        const y = Math.max(20, rect.top + sourceEditor.clientTop + parseFloat(getComputedStyle(sourceEditor).paddingTop));
-        const localY = sourceEditor.scrollTop + y - rect.top - sourceEditor.clientTop;
-        let index = lines.findIndex(line => line.top + line.height > localY);
-        if (index < 0) index = lines.length - 1;
-        const line = index + clamp((localY - lines[index].top) / lines[index].height, 0, .9999);
-        return { line, y, atStart: sourceEditor.scrollTop < 1 && window.scrollY < 1 };
-      }
       const y = Math.max(20, reader.getBoundingClientRect().top + parseFloat(getComputedStyle(reader).paddingTop));
       const blocks = mappedBlocks();
       const covering = blocks.filter(block => block.rect.top <= y && block.rect.bottom > y);
@@ -194,15 +160,9 @@
     }
     function restoreReadingPosition(anchor) {
       if (displayedMode === 'source') {
-        // Preview scrolls the document; the editor has its own scroll container.
         window.scrollTo({ top: 0, behavior: 'instant' });
-        const lines = measureSource();
-        const index = clamp(Math.floor(anchor.line), 0, lines.length - 1);
-        const rect = sourceEditor.getBoundingClientRect();
-        const top = rect.top + sourceEditor.clientTop;
-        const y = Math.max(top + parseFloat(getComputedStyle(sourceEditor).paddingTop), anchor.y);
-        const localY = lines[index].top + (anchor.line - Math.floor(anchor.line)) * lines[index].height;
-        sourceEditor.scrollTop = anchor.atStart ? 0 : localY - (y - top);
+        nativeSourcePosition = { ...anchor };
+        postNative({ type: 'sourceRestore', token: nativeToken, anchor });
       } else {
         const blocks = mappedBlocks();
         const distance = block => anchor.line < block.start ? block.start - anchor.line : anchor.line >= block.end ? anchor.line - block.end + .001 : 0;
@@ -234,11 +194,9 @@
       });
     });
     positionObserver.observe(reader);
-    positionObserver.observe(sourceEditor);
     ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(type => {
       document.addEventListener(type, () => { pinnedAnchor = null; }, { passive: true, capture: true });
     });
-    sourceEditor.addEventListener('input', () => { lastPosition = null; pinnedAnchor = null; measurementKey = ''; });
     function buildOutline() {
     stopOutlineFollow();
     outlineList.replaceChildren();
@@ -398,8 +356,8 @@
         element.dataset.mathRendered = 'true';
       });
       const resolveColor = name => {
-        sourceMeasure.style.color = `var(${name})`;
-        return getComputedStyle(sourceMeasure).color;
+        colorProbe.style.color = `var(${name})`;
+        return getComputedStyle(colorProbe).color;
       };
       const paper = getComputedStyle(app).backgroundColor;
       const ink = getComputedStyle(app).color;
@@ -487,8 +445,8 @@
       return documentFragment;
     }
     function updateDocument() {
-      if (renderedMarkdown === sourceEditor.value) return;
-      renderedMarkdown = sourceEditor.value;
+      if (renderedMarkdown === documentText) return;
+      renderedMarkdown = documentText;
       const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
       reader.replaceChildren(documentFragment);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
@@ -512,7 +470,7 @@
         render();
       },
       documentAttachment() {
-        const markdown = sourceEditor.value;
+        const markdown = documentText;
         return {
           text: markdown, markdown, mode: displayedMode, scope: 'document',
           location: t('Current document · {name}', { name: nativeDocumentName }), documentName: nativeDocumentName
@@ -537,6 +495,7 @@
       readingLayout.classList.toggle('mdv-with-outline', showOutline);
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) { outlineFollowPaused = false; keepCurrentHeadingVisible(); }
+      nativeInputs.trackLayout();
     }
     function switchMode(nextMode) {
       pinnedAnchor = null;
@@ -600,30 +559,6 @@
           fadeTo(1, motion.modeIn, finish);
         });
       }
-    }
-    function sourceSelectionRect() {
-      measureSource();
-      const rect = sourceEditor.getBoundingClientRect();
-      const mirror = sourceMeasure.cloneNode(false);
-      mirror.textContent = sourceEditor.value.slice(0, sourceEditor.selectionEnd);
-      const caret = document.createElement('span');
-      caret.textContent = '\u200b';
-      caret.style.display = 'inline';
-      mirror.append(caret);
-      app.append(mirror);
-      const relative = caret.getBoundingClientRect();
-      const frame = mirror.getBoundingClientRect();
-      const x = rect.left + relative.left - frame.left - sourceEditor.scrollLeft + 1;
-      const y = rect.top + relative.top - frame.top - sourceEditor.scrollTop + 1;
-      const height = relative.height || parseFloat(getComputedStyle(sourceEditor).lineHeight);
-      mirror.remove();
-      const end = clamp(x, rect.left + 12, rect.right - 12);
-      return {
-        left: end,
-        right: end,
-        top: Math.max(rect.top + 12, Math.min(y, rect.bottom - height)),
-        bottom: Math.max(rect.top + height, Math.min(y + height, rect.bottom - 12))
-      };
     }
     function previewSelectionEndRect(range) {
       const terminal = range.cloneRange();
@@ -834,27 +769,23 @@
       }
       return serialize(fragment).trim();
     }
-    function readSelection() {
-      if (displayedMode === 'source' && document.activeElement === sourceEditor && sourceEditor.selectionStart !== sourceEditor.selectionEnd) {
-        const start = sourceEditor.selectionStart;
-        const end = sourceEditor.selectionEnd;
-        selection = sourceEditor.value.slice(start, end);
-        const first = sourceEditor.value.slice(0, start).split('\n').length;
-        const last = sourceEditor.value.slice(0, end).split('\n').length;
+    function sourceAttachment({ start, end, rect }) {
+        selection = documentText.slice(start, end);
+        const first = documentText.slice(0, start).split('\n').length;
+        const last = documentText.slice(0, end).split('\n').length;
         const location = first === last ? t('Source · Line {line}', { line: first }) : t('Source · Lines {first}–{last}', { first, last });
-        const rect = sourceSelectionRect();
         let markdown = selection;
         const offsets = [0];
-        sourceEditor.value.split('\n').forEach(line => offsets.push(offsets.at(-1) + line.length + 1));
-        const codeBlock = markdownRenderer.parse(sourceEditor.value, {}).find(token => token.type === 'fence' && token.map && start >= offsets[token.map[0] + 1] && end <= (offsets[token.map[1] - 1] ?? sourceEditor.value.length));
+        documentText.split('\n').forEach(line => offsets.push(offsets.at(-1) + line.length + 1));
+        const codeBlock = markdownRenderer.parse(documentText, {}).find(token => token.type === 'fence' && token.map && start >= offsets[token.map[0] + 1] && end <= (offsets[token.map[1] - 1] ?? documentText.length));
         if (codeBlock) {
           const tick = String.fromCharCode(96);
           const fence = tick.repeat(Math.max(3, ...Array.from(selection.matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
           markdown = fence + codeBlock.info.trim().split(/\s/)[0] + '\n' + selection + '\n' + fence;
         }
-        selectionAttachment = { text: selection, markdown, mode: 'source', start, end, location, rect };
-        return rect;
-      }
+        return { text: selection, markdown, mode: 'source', start, end, location, rect, documentName: nativeDocumentName };
+    }
+    function readSelection() {
       const selected = window.getSelection();
       const text = selected?.toString().trim();
       if (displayedMode === 'preview' && text && selected.rangeCount && selected.anchorNode && selected.focusNode && reader.contains(selected.anchorNode) && reader.contains(selected.focusNode)) {

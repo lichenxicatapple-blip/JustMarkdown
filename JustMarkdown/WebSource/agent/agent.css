@@ -117,10 +117,8 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-proposal-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; padding: 6px 8px; gap: 4px; }
 #mdv-reading-concept .mdv-proposal-actions button:disabled { opacity: .35; }
 #mdv-reading-concept .mdv-proposal-note { margin: 0; padding: 0 14px 12px; font-size: 12px; line-height: 1.65; color: var(--mdv-muted); }
-#mdv-reading-concept .mdv-source-editor[data-agent-applied] { animation: mdv-edit-feedback var(--mdv-duration-editFeedback) var(--mdv-ease-editFeedback); }
 #mdv-reading-concept .mdv-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @keyframes mdv-breathe { from { opacity: .3; } to { opacity: .8; } }
-@keyframes mdv-edit-feedback { from { box-shadow: inset 0 0 0 2px var(--mdv-accent); } to { box-shadow: inset 0 0 0 0 transparent; } }
 @media (max-width: 899px) {
 #mdv-reading-concept .mdv-app { --mdv-agent-content-inset: 20px; }
 #mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }

@@ -4,55 +4,27 @@ import WebKit
 @MainActor
 final class ReaderWKWebView: WKWebView {
     var askSelectedText: (() -> Void)?
-    var sourceHistoryAction: ((String) -> Void)?
-    var sourceEditing = false
-    var canUndoSource = false
-    var canRedoSource = false
+    weak var sourceView: SourceTextView?
 
-    private var conversationFocused: Bool {
-        subviews.contains(where: { $0 is ConversationTextView && $0.isFirstResponder })
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let sourceView, !sourceView.isHidden, sourceView.isUserInteractionEnabled,
+            sourceView.alpha > 0.01, sourceView.frame.contains(point)
+        {
+            return sourceView.hitTest(sourceView.convert(point, from: self), with: event)
+        }
+        return super.hitTest(point, with: event)
     }
-
-    override var keyCommands: [UIKeyCommand]? {
-        guard sourceEditing, !conversationFocused else { return super.keyCommands }
-        let undo = UIKeyCommand(
-            title: String(localized: "Undo"), action: #selector(undoSource), input: "z", modifierFlags: .command)
-        let redo = UIKeyCommand(
-            title: String(localized: "Redo"), action: #selector(redoSource), input: "z",
-            modifierFlags: [.command, .shift])
-        undo.wantsPriorityOverSystemBehavior = true
-        redo.wantsPriorityOverSystemBehavior = true
-        return [undo, redo]
-    }
-
-    @objc private func undoSource() { sourceHistoryAction?("undo") }
-    @objc private func redoSource() { sourceHistoryAction?("redo") }
-
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        if action == #selector(undoSource) { return sourceEditing && !conversationFocused && canUndoSource }
-        if action == #selector(redoSource) { return sourceEditing && !conversationFocused && canRedoSource }
-        return super.canPerformAction(action, withSender: sender)
+    private var nativeInputFocused: Bool {
+        subviews.contains(where: { ($0 is ConversationTextView || $0 is SourceTextView) && $0.isFirstResponder })
     }
 
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
-        if conversationFocused { return }
+        if nativeInputFocused { return }
         let ask = UIAction(title: "AI", image: UIImage(systemName: "bubble.left")) { [weak self] _ in
             self?.askSelectedText?()
         }
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: [ask]), atEndOfMenu: .standardEdit)
-        if sourceEditing {
-            let undo = UIAction(
-                title: String(localized: "Undo"), image: UIImage(systemName: "arrow.uturn.backward"),
-                attributes: canUndoSource ? [] : .disabled
-            ) { [weak self] _ in self?.undoSource() }
-            let redo = UIAction(
-                title: String(localized: "Redo"), image: UIImage(systemName: "arrow.uturn.forward"),
-                attributes: canRedoSource ? [] : .disabled
-            ) { [weak self] _ in self?.redoSource() }
-            builder.insertChild(
-                UIMenu(title: "", options: .displayInline, children: [undo, redo]), atEndOfMenu: .standardEdit)
-        }
     }
 }
 
@@ -64,6 +36,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     private var loadedToken = ""
     private var lastTheme = ""
     private(set) var composer: NativeComposerHost!
+    let sourceEditor = SourceEditor()
+    private var sourceToken = ""
+    private var projectedRevision = -1
+    private var sourceEvents: [[String: String]] = []
+    private var projectionTask: Task<Void, Error>?
+    private var projectionGeneration = 0
 
     init(session: ReaderSession) {
         self.session = session
@@ -79,6 +57,19 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
                 injectionTime: .atDocumentStart, forMainFrameOnly: true))
         webView = ReaderWKWebView(frame: .zero, configuration: configuration)
         super.init()
+        if let document = session.document {
+            sourceToken = session.documentToken
+            sourceEditor.load(document.text)
+        }
+        // The transparent Web source surface lets its agent panel and scrim
+        // composite above the native document without duplicating document text.
+        webView.insertSubview(sourceEditor.textView, at: 0)
+        webView.sourceView = sourceEditor.textView
+        sourceEditor.onChange = { [weak self] id, status in self?.sourceDidChange(id: id, status: status) }
+        sourceEditor.onFocusChange = { [weak session] focused in session?.sourceFocused = focused }
+        sourceEditor.onAsk = { [weak self] range in
+            Task { try? await self?.askSourceSelection(range) }
+        }
         composer = NativeComposerHost(webView: webView)
         composer.call = { [weak self] method, payload in
             _ = try? await self?.call(method, arguments: ["payload": payload])
@@ -87,8 +78,8 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.isOpaque = false
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.keyboardDismissMode = .interactive
         webView.accessibilityIdentifier = "ReaderWebView"
@@ -98,7 +89,6 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.askSelectedText = { [weak self] in
             Task { _ = try? await self?.call("askSelection") }
         }
-        webView.sourceHistoryAction = { [weak session] action in session?.performSourceHistory(action) }
         session.bridge = self
         guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Web") else {
             session.errorMessage = String(localized: "Offline rendering resources are missing.")
@@ -107,27 +97,147 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         webView.loadFileURL(index, allowingReadAccessTo: index.deletingLastPathComponent())
     }
 
+    func flushSource() -> String? {
+        guard sourceToken == session.documentToken else { return session.document?.text }
+        sourceEditor.commitInput()
+        return sourceEditor.history.text
+    }
+
+    func applySourceEdit(before: String, after: String, id: String) -> Bool {
+        guard sourceToken == session.documentToken, session.mode == "source" else { return false }
+        return sourceEditor.replace(expected: before, with: after, id: id)
+    }
+
+    func moveSourceHistory(forward: Bool, id: String? = nil) -> Bool {
+        guard sourceToken == session.documentToken, session.mode == "source" else { return false }
+        sourceEditor.commitInput()
+        return sourceEditor.history.move(forward: forward, id: id)
+    }
+
     func call(_ method: String, arguments: [String: Any] = [:]) async throws -> Any? {
+        let payload = arguments["payload"]
+        switch method {
+        case "askSelection" where session.mode == "source":
+            try await askSourceSelection(sourceEditor.textView.selectedRange)
+            return nil
+        case "toggleMode", "toggleAgent", "commitAgentInput", "resolveAgentConsent":
+            try await synchronizeProjection()
+        case "diagnostics":
+            startProjection()
+            try await projectionTask?.value
+        default: break
+        }
+        if method == "toggleMode", session.mode == "source" {
+            let anchor = sourceEditor.capturePosition()
+            sourceEditor.textView.resignFirstResponder()
+            return try await rawCall(method, payload: ["anchor": anchor.payload])
+        }
+        if method == "scrollToSourceLine", session.mode == "source", let line = payload as? NSNumber {
+            sourceEditor.restore(SourceReadingPosition(line: line.doubleValue, y: ReaderDesign.sourceTopInset))
+            return try await call("diagnostics")
+        }
+        let result = try await rawCall(method, payload: payload)
+        if method == "diagnostics", var status = result as? [String: Any] {
+            status["history"] = ["canUndo": sourceEditor.history.canUndo, "canRedo": sourceEditor.history.canRedo]
+            status["source"] = sourceEditor.history.text
+            if status["mode"] as? String == "source" { status["anchor"] = sourceEditor.capturePosition().payload }
+            return status
+        }
+        return result
+    }
+
+    private func rawCall(_ method: String, payload: Any? = nil) async throws -> Any? {
         guard ready else { return nil }
         return try await webView.callAsyncJavaScript(
             "return await window.JustMarkdown[method](payload);",
-            arguments: ["method": method, "payload": arguments["payload"] ?? NSNull()],
-            in: nil, contentWorld: .page)
+            arguments: ["method": method, "payload": payload ?? NSNull()], in: nil, contentWorld: .page)
+    }
+
+    private func sourceDidChange(id: String?, status: String?) {
+        guard sourceToken == session.documentToken else { return }
+        session.sourceChanged(sourceEditor.history.text, token: sourceToken)
+        session.sourceHistoryChanged(
+            canUndo: sourceEditor.history.canUndo, canRedo: sourceEditor.history.canRedo, token: sourceToken)
+        if let id, let status {
+            let event = ["transactionID": id, "status": status]
+            if sourceEvents.last != event { sourceEvents.append(event) }
+        }
+        startProjection()
+    }
+
+    private func startProjection() {
+        guard ready, sourceToken == loadedToken, projectionTask == nil else { return }
+        let token = sourceToken
+        let generation = projectionGeneration
+        projectionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if generation == self.projectionGeneration { self.projectionTask = nil } }
+            while !Task.isCancelled, generation == self.projectionGeneration,
+                token == self.sourceToken && token == self.session.documentToken,
+                self.projectedRevision != self.sourceEditor.history.revision
+            {
+                let revision = self.sourceEditor.history.revision
+                let events = self.sourceEvents
+                let text = self.sourceEditor.history.text
+                let accepted = try await self.rawCall(
+                    "sourceState", payload: ["token": token, "text": text, "events": events])
+                guard generation == self.projectionGeneration, token == self.sourceToken, accepted as? Bool == true
+                else { return }
+                self.sourceEvents.removeFirst(min(events.count, self.sourceEvents.count))
+                self.projectedRevision = revision
+            }
+        }
+    }
+
+    private func synchronizeProjection() async throws {
+        sourceEditor.commitInput()
+        startProjection()
+        try await projectionTask?.value
+    }
+
+    private func askSourceSelection(_ range: NSRange) async throws {
+        guard session.mode == "source", range.length > 0 else { return }
+        let token = sourceToken
+        try await synchronizeProjection()
+        guard token == sourceToken, token == session.documentToken,
+            NSMaxRange(range) <= sourceEditor.history.text.utf16.count
+        else { return }
+        let view = sourceEditor.textView
+        let position = view.position(from: view.beginningOfDocument, offset: NSMaxRange(range))
+        let rect = position.map { view.convert(view.caretRect(for: $0), to: webView) } ?? .zero
+        view.resignFirstResponder()
+        _ = try await rawCall(
+            "askSourceSelection",
+            payload: [
+                "start": range.location, "end": NSMaxRange(range),
+                "rect": ["left": rect.minX, "right": rect.maxX, "top": rect.minY, "bottom": rect.maxY],
+            ])
     }
 
     func update() {
         guard ready else { return }
-        webView.sourceEditing = session.mode == "source" && !session.agentOpen
         updateTheme()
         guard let document = session.document, loadedToken != session.documentToken else { return }
         loadedToken = session.documentToken
         let token = loadedToken
+        if sourceToken != token {
+            projectionGeneration += 1
+            projectionTask?.cancel()
+            projectionTask = nil
+            sourceToken = token
+            sourceEvents.removeAll()
+            sourceEditor.load(document.text)
+        }
+        projectedRevision = sourceEditor.history.revision
         Task {
             do {
                 _ = try await call(
                     "openDocument",
                     arguments: [
-                        "payload": ["text": document.text, "token": token, "name": document.fileURL.lastPathComponent]
+                        "payload": [
+                            "text": sourceEditor.history.text, "token": token,
+                            "name": document.fileURL.lastPathComponent,
+                        ]
                     ])
             } catch {
                 session.errorMessage = String(
@@ -197,15 +307,17 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let paths = body["paths"] as? [String], let token = body["token"] as? String {
                 session.localResourcesChanged(paths, token: token)
             }
-        case "source":
-            if let text = body["text"] as? String, let token = body["token"] as? String {
-                session.sourceChanged(text, token: token)
-            }
-        case "sourceHistory":
-            if let token = body["token"] as? String {
-                session.sourceHistoryChanged(
-                    canUndo: body["canUndo"] as? Bool == true, canRedo: body["canRedo"] as? Bool == true, token: token)
-            }
+        case "sourceLayout":
+            guard body["token"] as? String == sourceToken else { return }
+            sourceEditor.updateLayout(
+                frame: CGRect(
+                    x: body["x"] as? Double ?? 0, y: body["y"] as? Double ?? 0,
+                    width: body["width"] as? Double ?? 0, height: body["height"] as? Double ?? 0),
+                visible: body["visible"] as? Bool == true, opacity: body["opacity"] as? Double ?? 1,
+                interactive: body["interactive"] as? Bool == true)
+        case "sourceRestore":
+            guard body["token"] as? String == sourceToken, let anchor = body["anchor"] as? [String: Any] else { return }
+            sourceEditor.restore(SourceReadingPosition(anchor))
         case "agentPresentation":
             session.agentOpen = body["open"] as? Bool == true
             session.agentModalActive = body["modal"] as? Bool == true
@@ -276,7 +388,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         session.agentTransport.cancel()
         composer.detach()
         webView.askSelectedText = nil
-        webView.sourceHistoryAction = nil
+        webView.sourceView = nil
+        sourceEditor.detach()
+        projectionGeneration += 1
+        projectionTask?.cancel()
+        projectionTask = nil
+        sourceEvents.removeAll()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "reader")
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -293,6 +410,11 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         session.finishDataSharingConsent(allowed: false)
         session.agentTransport.cancel()
         composer.blur()
+        sourceEditor.textView.resignFirstResponder()
+        sourceEditor.textView.isHidden = true
+        projectionGeneration += 1
+        projectionTask?.cancel()
+        projectionTask = nil
         session.agentOpen = false
         session.agentModalActive = false
         ready = false
@@ -311,6 +433,7 @@ final class ReaderViewport: UIView {
         self.webView = webView
         super.init(frame: .zero)
         clipsToBounds = true
+        backgroundColor = .systemBackground
         webView.autoresizingMask = []
         addSubview(webView)
         NotificationCenter.default.addObserver(

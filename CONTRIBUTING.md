@@ -73,6 +73,8 @@ Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重
 3. 添加 `JUSTMARKDOWN_LIVE_CONFIG` 指向配置文件，设置 `CFNETWORK_DIAGNOSTICS=0`。
 4. 从测试导航器只运行上述用例，分别选择 iPhone 与 iPad 模拟器。
 
+选择支持工具调用的模型与接口组合；只验证一种协议时填写 `apiProtocol`。实体设备运行时，将配置文件放入测试宿主 App 的沙盒，环境变量支持以 `~/` 开头的应用内路径。
+
 测试使用独立样本文档和 Keychain 服务，结束删除测试凭据。真实调用可能计费；不提交私有 scheme、配置路径、凭据或包含它们的附件。
 
 ## 提交修改

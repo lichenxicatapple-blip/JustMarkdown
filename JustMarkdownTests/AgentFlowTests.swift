@@ -242,7 +242,9 @@ final class AgentFlowTests: XCTestCase {
             let key: String
             let apiProtocol: String?
         }
-        let live = try JSONDecoder().decode(LiveConfiguration.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
+        let live = try JSONDecoder().decode(
+            LiveConfiguration.self,
+            from: Data(contentsOf: URL(fileURLWithPath: (path as NSString).expandingTildeInPath)))
         let configuration = ModelConfiguration(baseURL: live.baseURL, model: live.model)
         let endpoint = try configuration.endpoint()
         guard endpoint.scheme == "https", endpoint.host == "api.atlascloud.ai",
@@ -310,7 +312,10 @@ final class AgentFlowTests: XCTestCase {
             try await wait { session.document?.text == original }
             await session.flushChanges()
             XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), original)
-            _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]])
+            let redone = bridge.moveSourceHistory(forward: true)
+            XCTAssertTrue(redone, "The AI transaction must be available in the native redo stack")
+            XCTAssertEqual(bridge.sourceEditor.history.text, applied)
+            XCTAssertEqual(session.document?.text, applied)
             await session.flushChanges()
             XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), applied)
             let evidence = try await state(bridge)
@@ -346,11 +351,8 @@ final class AgentFlowTests: XCTestCase {
         AgentFixtureProtocol.queue.reset([AgentFixture(text: "第一轮回答。"), AgentFixture(text: "第二轮回答。")])
         let (session, bridge, _, _) = try await reader(
             "# 文档\n\nSELECTED_ONLY\n\n完整文档背景。\n", dataSharingAllowed: false)
-        _ = try await bridge.call("toggleMode")
-        try await wait { session.mode == "source" }
-        _ = try await bridge.webView.evaluateJavaScript(
-            "const editor = document.querySelector('.mdv-source-editor'); const start = editor.value.indexOf('SELECTED_ONLY'); editor.setSelectionRange(start, start + 13);"
-        )
+        try await sourceMode(bridge)
+        try selectSource("SELECTED_ONLY", bridge: bridge)
         _ = try await bridge.call("askSelection")
         try await send("解释这段。", bridge: bridge)
         try await wait { session.needsDataSharingConsent }
@@ -489,7 +491,7 @@ final class AgentFlowTests: XCTestCase {
                 "document.querySelectorAll('.mdv-turn script,.mdv-turn iframe,.mdv-turn [onerror]').length") as? Int
         XCTAssertEqual(unsafe, 0)
         let updated = "# 新文档内容\n\n更新后的内容。\n"
-        _ = try await bridge.call("setSource", arguments: ["payload": updated])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: updated)
         await session.closeAgent()
         _ = try await bridge.call("toggleAgent")
         try await send("继续解释。", bridge: bridge)
@@ -526,7 +528,7 @@ final class AgentFlowTests: XCTestCase {
         _ = try await bridge.webView.evaluateJavaScript(
             "document.querySelector('.mdv-composer textarea').value = '尚未发送的新草稿'; document.querySelector('.mdv-composer textarea').dispatchEvent(new Event('input',{bubbles:true}));"
         )
-        _ = try await bridge.call("setSource", arguments: ["payload": "# 后续文档\n\n不应进入重试请求。\n"])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: "# 后续文档\n\n不应进入重试请求。\n")
         _ = try await bridge.webView.evaluateJavaScript(
             "const retry = document.querySelector('[data-agent-action=retry]'); retry.click(); retry.click();")
         var result = try await state(bridge)
@@ -548,15 +550,13 @@ final class AgentFlowTests: XCTestCase {
         AgentFixtureProtocol.queue.reset([AgentFixture(text: "**真实桥接的回答**。")])
         let (session, bridge, _, _) = try await reader("# 原始文档\n\nSELECTED_ONLY\n\nUNSELECTED\n", api: .responses)
         try await sourceMode(bridge)
-        _ = try await bridge.webView.evaluateJavaScript(
-            "(() => { const s=document.querySelector('.mdv-source-editor');s.focus();const i=s.value.indexOf('SELECTED_ONLY');s.setSelectionRange(i,i+13); })();"
-        )
+        try selectSource("SELECTED_ONLY", bridge: bridge)
         _ = try await bridge.call("askSelection", arguments: ["payload": "SELECTED_ONLY"])
         try await wait { session.agentOpen }
         await session.closeAgent()
         _ = try await bridge.call("toggleAgent")
         let current = "# 当前文档\n\n完整的新内容。\n"
-        _ = try await bridge.call("setSource", arguments: ["payload": current])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: current)
         try await send("总结现在的全文。", bridge: bridge)
         try await completed(bridge)
         let bodies = AgentFixtureProtocol.queue.requests()
@@ -579,16 +579,14 @@ final class AgentFlowTests: XCTestCase {
         let key = Credential()
         let (session, bridge, _, _) = try await reader("# 标题\n\nSELECTED_ONLY\n\nUNSELECTED\n", modelKey: { key.value })
         try await sourceMode(bridge)
-        let select =
-            "(() => { const s=document.querySelector('.mdv-source-editor');s.focus();const i=s.value.indexOf('SELECTED_ONLY');s.setSelectionRange(i,i+13); })();"
-        _ = try await bridge.webView.evaluateJavaScript(select)
+        try selectSource("SELECTED_ONLY", bridge: bridge)
         _ = try await bridge.call("askSelection")
         try await wait { session.needsModelConfiguration }
         XCTAssertFalse(session.agentOpen)
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
         session.needsModelConfiguration = false
         session.finishAgentConfiguration(saved: false)
-        _ = try await bridge.webView.evaluateJavaScript(select)
+        try selectSource("SELECTED_ONLY", bridge: bridge)
         _ = try await bridge.call("askSelection")
         try await wait { session.needsModelConfiguration }
         key.value = "fixture-key"
@@ -626,6 +624,13 @@ final class AgentFlowTests: XCTestCase {
         let result = try await state(bridge)
         XCTAssertEqual((result["turns"] as? [[String: Any]])?.last?["state"] as? String, "stopped")
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+    }
+
+    private func selectSource(_ text: String, bridge: ReaderBridge) throws {
+        let range = (bridge.sourceEditor.history.text as NSString).range(of: text)
+        XCTAssertNotEqual(range.location, NSNotFound)
+        guard range.location != NSNotFound else { throw CocoaError(.coderReadCorrupt) }
+        bridge.sourceEditor.textView.selectedRange = range
     }
 
     private func sourceMode(_ bridge: ReaderBridge) async throws {
@@ -693,7 +698,7 @@ final class AgentFlowTests: XCTestCase {
                 try await bridge.webView.evaluateJavaScript("typeof window.delayedUndoResult === 'function'")
                     as? Bool == true
             }
-            let redone = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]]) as? Bool
+            let redone = bridge.moveSourceHistory(forward: true)
             XCTAssertEqual(redone, true)
             try await wait { session.document?.text == applied }
             _ = try await bridge.webView.evaluateJavaScript("window.delayedUndoResult();")
@@ -701,10 +706,10 @@ final class AgentFlowTests: XCTestCase {
                 try await bridge.webView.evaluateJavaScript(
                     "!document.querySelector('[data-agent-action=undo]').hidden") as? Bool
             XCTAssertEqual(undoVisible, true)
-            _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo"]])
-            _ = try await bridge.call("setSource", arguments: ["payload": original + "手动追加。\n"])
+            _ = bridge.moveSourceHistory(forward: false)
+            _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: original + "手动追加。\n")
             let unavailable =
-                try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]]) as? Bool
+                bridge.moveSourceHistory(forward: true)
             XCTAssertEqual(unavailable, false)
             try await send("只解释原文，不要修改。", bridge: bridge)
             try await completed(bridge, count: 4)
@@ -715,6 +720,59 @@ final class AgentFlowTests: XCTestCase {
                 Data(try XCTUnwrap(history.first { $0["role"] as? String == "assistant" }?["content"] as? String).utf8))
             XCTAssertEqual((previousReply["sourceChanges"] as? [[String: String]])?.first?["status"], "undone")
         }
+    }
+
+    func testDelayedUndoProjectionCannotOverwriteANewerNativeRedo() async throws {
+        let original = "# Document\n\nOriginal paragraph.\n"
+        let applied = original.replacingOccurrences(of: "Original", with: "Revised")
+        let (session, bridge, _, url) = try await reader(original)
+        try await sourceMode(bridge)
+        let execution = await session.agentDocuments.execute(
+            try editCall(original, before: "Original", after: "Revised"), token: session.documentToken)
+        let change = try XCTUnwrap(execution.change)
+        XCTAssertEqual(change.saved, true)
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            (() => {
+              const deliver = window.JustMarkdown.sourceState.bind(window.JustMarkdown);
+              window.JustMarkdown.sourceState = payload => {
+                if (!payload.events.some(event => event.status === 'undone')) return deliver(payload);
+                return new Promise(resolve => {
+                  window.releaseUndoProjection = () => {
+                    delete window.releaseUndoProjection;
+                    window.JustMarkdown.sourceState = deliver;
+                    resolve(deliver(payload));
+                  };
+                });
+              };
+            })();
+            """)
+        let token = session.documentToken
+        var undoFinished = false
+        let undo = Task {
+            let result = await session.agentDocuments.undo(change.id, token: token)
+            undoFinished = true
+            return result
+        }
+        try await wait {
+            let held =
+                try await bridge.webView.evaluateJavaScript("typeof window.releaseUndoProjection === 'function'")
+                as? Bool == true
+            return session.document?.text == original && held
+        }
+        bridge.sourceEditor.history.undoManager.redo()
+        XCTAssertEqual(session.document?.text, applied)
+        try await wait { undoFinished }
+        XCTAssertEqual(session.document?.text, applied)
+        _ = try await bridge.webView.evaluateJavaScript("window.releaseUndoProjection();")
+        let result = await undo.value
+        XCTAssertEqual(result["status"], "undone")
+        XCTAssertEqual(session.document?.text, applied, "A delayed renderer response cannot write an old snapshot")
+        await session.flushChanges()
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), applied)
+        _ = try await bridge.call("toggleAgent")
+        let source = try await bridge.webView.evaluateJavaScript("window.JustMarkdown.diagnostics().source") as? String
+        XCTAssertEqual(source, applied, "The renderer eventually receives the latest native revision")
     }
 
     func testSourceToolRejectsStaleAmbiguousAndOverlappingChangesAtomically() async throws {
@@ -732,7 +790,7 @@ final class AgentFlowTests: XCTestCase {
         let overlap = await session.agentDocuments.execute(
             .init(id: "overlap", name: "edit_document", arguments: String(decoding: data, as: UTF8.self)), token: token)
         XCTAssertTrue(overlap.output.contains("invalid_edit"))
-        _ = try await bridge.call("setSource", arguments: ["payload": original + "手动编辑。"])
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: original + "手动编辑。")
         let stale = await session.agentDocuments.execute(
             try editCall(original, before: "唯一原文。", after: "新内容。"), token: token)
         XCTAssertTrue(stale.output.contains("stale_document"))
@@ -768,7 +826,7 @@ final class AgentFlowTests: XCTestCase {
             try await bridge.webView.evaluateJavaScript(
                 "document.querySelectorAll('[data-component=DocumentChange]').length") as? Int
         XCTAssertEqual(cards, 1)
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo"]])
+        _ = bridge.moveSourceHistory(forward: false)
         try await wait { session.document?.text == original }
         XCTAssertFalse(session.canUndoSource)
     }
@@ -794,9 +852,9 @@ final class AgentFlowTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "# 文档\n\n新文。\n")
         let turns = try await state(bridge)["turns"] as? [[String: Any]]
         XCTAssertEqual(turns?.last?["state"] as? String, "stopped")
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "undo"]])
+        _ = bridge.moveSourceHistory(forward: false)
         try await wait { session.document?.text == original }
-        _ = try await bridge.call("historyAction", arguments: ["payload": ["action": "redo"]])
+        _ = bridge.moveSourceHistory(forward: true)
         try await wait { session.document?.text == "# 文档\n\n新文。\n" }
     }
 

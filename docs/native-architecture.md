@@ -4,7 +4,7 @@ JustMarkdown 是面向 iPhone 和 iPad 的单文档 Markdown 阅读与编辑应�
 
 ## 系统组成
 
-SwiftUI／UIKit 负责系统能力和原生交互，WKWebView 负责文档工作缓冲区与富文本呈现。文档、目录、源码和对话复用离线渲染组件；文件访问、凭据、模型请求及物理键盘处理保留在原生层。
+SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只读文档快照、目录和对话的富文本呈现。源码工作文本与撤销历史由原生层持有，Markdown、数学和图表渲染由离线 Web 组件复用；文件访问、凭据和模型请求保留在原生层。
 
 ```mermaid
 flowchart LR
@@ -12,7 +12,9 @@ flowchart LR
     Session <--> Bridge[ReaderBridge]
     Bridge <--> Web[WKWebView]
     Web --> Rendering[正文、目录与对话渲染]
-    Web --> History[源码工作缓冲区与撤销历史]
+    Bridge <--> Editor[SourceEditor / TextKit 2]
+    Editor --> History[SourceHistory / UndoManager]
+    History --> Session
     Session --> Document[MarkdownDocument / UIDocument]
     Document <--> Files[Markdown 文件与授权资源]
     Web --> Resources[LocalResourceHandler]
@@ -28,8 +30,9 @@ flowchart LR
 | --- | --- | --- |
 | 原生呈现与协调 | [ReaderScreen](../JustMarkdown/ReaderScreen.swift)、[ReaderSession](../JustMarkdown/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
 | WebKit 桥接与输入 | [ReaderWebView](../JustMarkdown/ReaderWebView.swift)、[NativeComposerHost](../JustMarkdown/NativeComposerHost.swift)、[ConversationInput](../JustMarkdown/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
+| 源码编辑与历史 | [SourceEditor](../JustMarkdown/SourceEditor.swift)、[SourceHistory](../JustMarkdown/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
 | 文档与授权 | [MarkdownDocument](../JustMarkdown/MarkdownDocument.swift)、[LocalResources](../JustMarkdown/LocalResources.swift)、[RecentDocuments](../JustMarkdown/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
-| 文档与对话呈现 | [WebSource](../JustMarkdown/WebSource/) | 解析、清理、排版、位置映射、选段、历史和对话状态 |
+| 文档与对话呈现 | [WebSource](../JustMarkdown/WebSource/) | 解析、清理、排版、预览位置映射、富文本选段和对话状态 |
 | Agent 执行 | [AgentContextBuilder](../JustMarkdown/AgentContextBuilder.swift)、[AgentModelTransport](../JustMarkdown/AgentModelTransport.swift)、[AgentDocumentTools](../JustMarkdown/AgentDocumentTools.swift) | 请求快照、上下文版本、生成、工具执行与恢复 |
 | 供应商适配 | [ModelClient](../JustMarkdown/ModelClient.swift)、[ModelWireFormat](../JustMarkdown/ModelWireFormat.swift)、[ModelCatalog](../JustMarkdown/ModelCatalog.swift) | 协议编码、流解析、错误分类和模型目录缓存 |
 
@@ -38,7 +41,7 @@ flowchart LR
 | 选择 | 目的与约束 |
 | --- | --- |
 | 原生容器与 Web 渲染分工 | 原生层复用文件选择、Keychain、系统菜单和输入能力；Web 层让正文与对话共用 Markdown、数学和图表能力。桥接只传递完成相应操作所需的数据。 |
-| 一个文档工作缓冲区 | 预览、源码、目录和源码历史由同一份 Web 工作内容派生。原生文档持有同步后的文本，专职原文件读写；保存前同步源码，模型发送直接固定工作缓冲区快照。 |
+| 一个文档工作缓冲区 | `SourceHistory` 持有工作文本，原生编辑器呈现并提交输入，`MarkdownDocument` 接收修改以保存原文件。Web 只接收按版本串行同步的只读快照；模式切换、AI 入口和发送前等待最新投影，不从 DOM 读取源码。 |
 | 原位置打开与保存 | 保留原文件及相对目录关系。文件授权不等于父目录授权，引用资源通过明确授权的目录读取。 |
 | 完整、带版本的上下文 | 选段表达关注点，完整文档提供背景；按内容去重版本，避免旧引用与当前文本混淆。上下文不足时返回错误，当前不静默截断、摘要或丢弃历史。 |
 | 原生、显式的模型协议 | API Key 不进入 Web。每次请求使用已选协议，不以失败请求探测另一协议；后续工具轮次沿用同一连接和协议。 |
@@ -50,15 +53,21 @@ flowchart LR
 | 状态 | 所有者 | 生命周期与一致性规则 |
 | --- | --- | --- |
 | 当前文档及原生呈现 | `ReaderSession`，主线程协调 | 打开成功后交接文档；以 `documentToken` 隔离不同文档的异步工作 |
-| 工作文本与阅读位置 | Web `reader.js` | 源码、预览和目录共享内容；语法块的源码范围支持双向位置映射 |
+| 工作文本与阅读位置 | 原生 `SourceHistory`、`SourceEditor` 与 Web `reader.js` | 原生拥有工作文本、源码选区与滚动位置；Web 从快照派生预览及目录，以语法块的源码范围映射预览位置 |
 | 原文件文本与格式 | `MarkdownDocument` | 保存同步文本；保留编码、BOM、字节序和原换行约定 |
-| 撤销与重做 | Web `source-history.js` | 保存差异片段及前后选区；手动编辑和 AI 批次共用历史，换文档重置 |
+| 撤销与重做 | 原生 `SourceHistory` 与 `SourceUndoManager` | 差异片段及前后选区组成事务，连续输入按语义边界合并；组合输入、粘贴和 AI 批次分别成组。系统菜单、手势、快捷键和触控按钮共用同一个 UndoManager，换文档重置 |
 | 会话、引用和请求快照 | Web `agent.js` | 仅在内存中保留；草稿可变，已发送引用和请求快照不可变；收起保留，换文档清空 |
 | 活动输入 | UIKit 输入视图与 Web 草稿 | 通过输入版本号（epoch）拒绝过期同步，发送前提交当前原生文本 |
 | 生成及工具结果 | `AgentModelTransport`、`AgentDocumentTools` | 同时一个活动请求；工具结果按请求记录，已完成修改可在重试时恢复执行进度 |
 | 设置、发送授权、凭据与最近记录 | UserDefaults、`ModelDataConsent`、Keychain、`RecentDocumentsStore` | Key 仅在 Keychain 持久化；设置、已允许服务地址的摘要与最近文件书签保存在 UserDefaults，最近记录不保存正文副本 |
 
 工具保留的文档前后版本用于编辑和撤销校验；用户操作仍进入同一份源码历史。模式切换保留历史，新编辑清空重做；保存完成确认不能覆盖之后的历史状态。
+
+源码使用 `UITextView` 的 TextKit 2 与公开文本位置接口，字体、光标、选择和组合输入沿用 UIKit。`SourceUndoManager` 仅接受文档模型注册的事务，防止 UIKit 的自动注册形成第二份编辑历史；不修改系统光标几何或使用私有文本布局接口。
+
+源码输入视图位于透明 Web 源码区域下方。桥接按同一布局结果定位原生视图，并仅将源码区域的可交互事件交给它；Web 中的对话及遮罩正常合成在其上方，模态期间原生源码退出触控和辅助功能焦点。
+
+Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合并后续文本更新并保留事务状态事件。保存、工具编辑与历史操作直接读取或提交原生状态，不等待 Web 投影，也不在渲染应答后回写旧文本。AI 编辑的成功以原生事务提交为准，Web 投影失败不将已发生的修改报告为未执行。
 
 跨模式定位以源码位置为语义锚点，将块内位置和代码行偏移映射为源码行位置，并记录内容在视口中的纵向位置。切换时等待目标排版、公式和图表就绪，映射位置后再淡入；未滚动的往返复用原锚点，图片或字体引起的重排在用户继续交互前保持该锚点。
 
@@ -79,7 +88,7 @@ flowchart LR
 
 ### 编辑与保存
 
-1. Web 编辑更新工作缓冲区和共享历史，经桥接同步到 `MarkdownDocument.text` 并标记修改；连续输入合并后自动保存。
+1. 原生编辑器提交已确认的输入至 `SourceHistory`，同步更新 `MarkdownDocument.text` 并标记修改；连续输入后自动保存。输入法组合中的文本不生成中间事务，显式同步时先提交组合输入。
 2. 切换模式、进入后台、关闭文档和工具访问前，按各自流程同步最新源码；保存由 `UIDocument` 在原位置执行。
 3. 关闭遵循同步、保存、关闭、释放资源的顺序。保存失败保留文本和当前文档，由界面提供后续选择；新文档打开失败不替换当前文档。
 
@@ -108,7 +117,7 @@ flowchart LR
 
 1. 同步最新源码，验证文档身份、源码视图及 SHA-256 revision。
 2. 验证所有替换的 `before` 唯一、逐字相符且范围互不重叠；仅空文档允许空 `before`。
-3. 全部通过后计算新文本，Web 再比较预期原文并原子提交，作为一个事务进入共享历史。
+3. 全部通过后计算新文本，原生编辑器再比较预期原文并原子提交，作为一个事务进入共享历史，随后更新 Web 快照。
 4. 报告实际变化，保存文件，再将保存结果记录为工具输出。保存失败保留已完成的文本修改，结果不得声称已保存或重复执行同一修改。
 
 工具参数在模型整轮成功完成后执行。传输层逐项记录已完成调用及结果，失败或停止保留已发生的修改；对同一快照的手动重试继续已有进度。相同调用得到相同结果且文档版本不变时暂停后续工具，用户也可停止；不以固定轮数替代循环保护。
@@ -135,7 +144,7 @@ Responses 请求设置 `store:false` 并发送所需历史，不依赖服务器�
 | 模型请求迟到 | 活动请求 ID 与 token 共同限定接收对象，不能更新另一轮回答 |
 | 输入同步迟到 | 草稿 epoch 校验输入版本，生成期间的新草稿不被旧回调覆盖 |
 | 模型目录迟到 | 连接身份与请求 ID 校验缓存写入，选择页保持自己的快照 |
-| Web 内容进程终止 | 取消生成、释放活动输入，重载渲染页面，再从原生同步文本恢复文档；Web 中的对话和撤销历史随进程丢失 |
+| Web 内容进程终止 | 取消生成、释放活动输入，重载渲染页面，再从原生工作文本恢复文档；原生源码历史保留，Web 中的对话随进程丢失 |
 
 ## 资源与维护边界
 

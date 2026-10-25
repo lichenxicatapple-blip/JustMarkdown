@@ -8,6 +8,7 @@ final class ReaderSession: ObservableObject {
     @Published private(set) var document: MarkdownDocument?
     @Published private(set) var documentToken = UUID().uuidString.lowercased()
     @Published var mode = "preview"
+    @Published var sourceFocused = false
     @Published private(set) var canUndoSource = false
     @Published private(set) var canRedoSource = false
     @Published var outlineExpanded = false
@@ -244,22 +245,15 @@ final class ReaderSession: ObservableObject {
         return saved
     }
 
-    private func synchronizeSource() async throws {
+    private func synchronizeSource() {
         bridge?.webView.endEditing(true)
-        let token = documentToken
-        if let text = try await bridge?.call("flushSource") as? String {
-            guard token == documentToken else { return }
-            sourceChanged(text, token: token)
-        }
+        _ = bridge?.flushSource()
     }
 
     @discardableResult
     func flushChanges() async -> Bool {
         guard !isClosingDocument, failedCloseToken == nil else { return false }
-        do { try await synchronizeSource() } catch {
-            errorMessage = String(localized: "Your changes could not be read. Keep the document open and try again.")
-            return false
-        }
+        synchronizeSource()
         autosaveTask?.cancel()
         return await saveCurrentDocument()
     }
@@ -277,48 +271,43 @@ final class ReaderSession: ObservableObject {
         errorMessage = nil
         autosaveTask?.cancel()
         defer { isClosingDocument = false }
-        do {
-            if !discardChanges { try await synchronizeSource() }
-            autosaveTask?.cancel()
-            let hadChanges = document.hasUnsavedChanges
-            // UIDocument.close normally saves. Only an explicit discard choice
-            // clears its dirty state so closing cannot retry the failed write.
-            if discardChanges { document.updateChangeCount(.cleared) }
-            guard await document.closeSavingChanges() else {
-                if discardChanges && hadChanges { document.updateChangeCount(.done) }
-                failedCloseToken = documentToken
-                closeSaveFailed = true
-                return
-            }
-            agentTransport.reset()
-            finishDataSharingConsent(allowed: false)
-            agentDocuments.reset()
-            pendingAgentEntry = nil
-            failedCloseToken = nil
-            needsModelConfiguration = false
-            needsResourcePermission = false
-            localResourcePaths = nil
-            deniedResourcePath = nil
-            resourcePermissionDirectory = nil
-            modelSettingsRequested = false
-            agentOpen = false
-            agentModalActive = false
-            documentToken = UUID().uuidString.lowercased()
-            rendererReady = false
-            mode = "preview"
-            canUndoSource = false
-            canRedoSource = false
-            outlineExpanded = false
-            hasOutline = false
-            resources.clear()
-            documentScope?.stopAccessingSecurityScopedResource()
-            documentScope = nil
-            self.document = nil
-            bridge = nil
-        } catch {
+        if !discardChanges { synchronizeSource() }
+        autosaveTask?.cancel()
+        let hadChanges = document.hasUnsavedChanges
+        // UIDocument.close normally saves. Only an explicit discard choice
+        // clears its dirty state so closing cannot retry the failed write.
+        if discardChanges { document.updateChangeCount(.cleared) }
+        guard await document.closeSavingChanges() else {
+            if discardChanges && hadChanges { document.updateChangeCount(.done) }
             failedCloseToken = documentToken
             closeSaveFailed = true
+            return
         }
+        agentTransport.reset()
+        finishDataSharingConsent(allowed: false)
+        agentDocuments.reset()
+        pendingAgentEntry = nil
+        failedCloseToken = nil
+        needsModelConfiguration = false
+        needsResourcePermission = false
+        localResourcePaths = nil
+        deniedResourcePath = nil
+        resourcePermissionDirectory = nil
+        modelSettingsRequested = false
+        agentOpen = false
+        agentModalActive = false
+        documentToken = UUID().uuidString.lowercased()
+        rendererReady = false
+        mode = "preview"
+        canUndoSource = false
+        canRedoSource = false
+        outlineExpanded = false
+        hasOutline = false
+        resources.clear()
+        documentScope?.stopAccessingSecurityScopedResource()
+        documentScope = nil
+        self.document = nil
+        bridge = nil
     }
 
     func toggleMode() {
@@ -464,15 +453,11 @@ final class ReaderSession: ObservableObject {
         guard token == documentToken else { return }
         canUndoSource = canUndo
         canRedoSource = canRedo
-        bridge?.webView.canUndoSource = canUndo
-        bridge?.webView.canRedoSource = canRedo
     }
 
-    func performSourceHistory(_ action: String) {
+    func performSourceHistory(forward: Bool) {
         guard mode == "source", !isClosingDocument, document != nil else { return }
-        Task {
-            _ = try? await bridge?.call("historyAction", arguments: ["payload": ["action": action]])
-        }
+        _ = bridge?.moveSourceHistory(forward: forward)
     }
 
     func saveConfiguration(_ value: ModelConfiguration, key: String) throws {

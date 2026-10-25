@@ -55,6 +55,10 @@
   --mdv-agent-leading: 1.8;
   --mdv-diff-insert: light-dark(#e7f3eb, #243d30);
   --mdv-diff-remove: light-dark(#fae9e7, #472b2b);
+  --mdv-source-text-size: 16px;
+  --mdv-source-horizontal-inset: 24px;
+  --mdv-source-top-inset: 76px;
+  --mdv-source-bottom-inset: 84px;
   --mdv-duration-homeEntrance: 520ms;
   --mdv-ease-homeEntrance: ease-out;
   --mdv-duration-material: 160ms;
@@ -260,16 +264,12 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-mermaid > svg { display: block; max-width: none; margin: 0 auto; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) .mdv-diagram-error { color: var(--mdv-muted); font-size: 14px; }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) mark { background: var(--mdv-mark); color: var(--mdv-ink); padding: 2px 0; border-radius: 2px; }
-#mdv-reading-concept .mdv-source { margin: 24px; padding: 20px; border-radius: 10px; background: var(--mdv-source); color: var(--mdv-ink); white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.9 ui-monospace, "SFMono-Regular", Menlo, monospace; }
-#mdv-reading-concept .mdv-app.mdv-showing-source { height: 100dvh; min-height: 0; }
+#mdv-reading-concept .mdv-app.mdv-showing-source { height: 100dvh; min-height: 0; background: transparent; }
 #mdv-reading-concept .mdv-showing-source .mdv-reading-layout,
 #mdv-reading-concept .mdv-showing-source .mdv-workspace { height: 100%; min-height: 0; }
 #mdv-reading-concept .mdv-showing-source .mdv-workspace { grid-column: 1; }
 #mdv-reading-concept .mdv-showing-source .mdv-reader { display: flex; flex-direction: column; min-height: 0; padding-bottom: 0; }
-#mdv-reading-concept .mdv-source-panel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
-#mdv-reading-concept .mdv-source-editor { display: block; flex: 1; width: calc(100% - 48px); margin: 16px 24px 24px; min-height: 0; resize: none; border: 1px solid var(--mdv-line); border-radius: 10px; padding: calc(var(--mdv-hit-target) + 8px) 18px 88px; background: var(--mdv-source); color: var(--mdv-ink); font: 14px/1.9 ui-monospace, "SFMono-Regular", Menlo, monospace !important; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; tab-size: 4; }
-#mdv-reading-concept .mdv-source-measure { position: fixed; top: 0; left: 0; visibility: hidden; pointer-events: none; z-index: -1; }
-#mdv-reading-concept .mdv-source-measure > span { display: block; }
+#mdv-reading-concept .mdv-source-panel { flex: 1; min-height: 0; }
 #mdv-reading-concept .mdv-agent { border-left: 1px solid var(--mdv-line); padding: 20px 18px; min-width: 0; background: var(--mdv-chrome); border-bottom-right-radius: 20px; }
 #mdv-reading-concept .mdv-agent-header { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 18px; font-weight: 500; }
 #mdv-reading-concept .mdv-composer { margin-top: 24px; }
@@ -290,8 +290,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-outline-inner { position: static; }
 #mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }
 #mdv-reading-concept .mdv-agent { border-left: 0; border-top: 1px solid var(--mdv-line); border-radius: 0; }
-#mdv-reading-concept .mdv-source { margin: 20px 14px; padding: 16px; }
-#mdv-reading-concept .mdv-source-editor { font-size: 16px !important; }
 
 }
 @media (prefers-reduced-motion: reduce) {
@@ -423,10 +421,8 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-proposal-actions { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; padding: 6px 8px; gap: 4px; }
 #mdv-reading-concept .mdv-proposal-actions button:disabled { opacity: .35; }
 #mdv-reading-concept .mdv-proposal-note { margin: 0; padding: 0 14px 12px; font-size: 12px; line-height: 1.65; color: var(--mdv-muted); }
-#mdv-reading-concept .mdv-source-editor[data-agent-applied] { animation: mdv-edit-feedback var(--mdv-duration-editFeedback) var(--mdv-ease-editFeedback); }
 #mdv-reading-concept .mdv-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 @keyframes mdv-breathe { from { opacity: .3; } to { opacity: .8; } }
-@keyframes mdv-edit-feedback { from { box-shadow: inset 0 0 0 2px var(--mdv-accent); } to { box-shadow: inset 0 0 0 0 transparent; } }
 @media (max-width: 899px) {
 #mdv-reading-concept .mdv-app { --mdv-agent-content-inset: 20px; }
 #mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1fr); }
@@ -458,9 +454,7 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
     <main class="mdv-reader" data-component="DocumentSurface">
       <article class="mdv-article">
       </article>
-      <div class="mdv-source-panel" hidden>
-        <textarea class="mdv-source-editor" aria-label="Markdown source" data-l10n-aria-label="Markdown source" spellcheck="false" autocapitalize="none"></textarea>
-      </div>
+      <div class="mdv-source-panel" aria-hidden="true" hidden></div>
     </main>
 <aside class="mdv-agent" data-component="QuestionPanel" aria-label="AI conversation" data-l10n-aria-label="AI conversation" hidden>
   <div class="mdv-agent-grabber" aria-hidden="true"><span></span></div>
@@ -487,11 +481,10 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 </template>
 <script src="localization.js"></script>
 <script src="agent.js"></script>
-<script src="source-history.js"></script>
 <style>
 html,
 body { margin: 0; padding: 0; width: 100%; min-height: 100%; color-scheme: light dark; -webkit-text-size-adjust: 100%; }
-body { background: light-dark(#fff, #1c1f23); font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+body { background: transparent; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
 html:has(#mdv-reading-concept) { scrollbar-gutter: auto; }
 #mdv-reading-concept { padding: 0; }
 #mdv-reading-concept .mdv-app { border: 0; border-radius: 0; min-height: 100dvh; }
@@ -501,7 +494,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: auto; }
 #mdv-reading-concept .mdv-article h2 { font-size: calc(18px * var(--jm-font-scale, 1)); }
 #mdv-reading-concept .mdv-article :is(h3,h4,h5,h6) { font-size: calc(16px * var(--jm-font-scale, 1)); }
 #mdv-reading-concept .mdv-outline-row a { font-size: calc(13px * var(--jm-font-scale, 1)); }
-#mdv-reading-concept .mdv-source-editor { font-size: calc(14px * var(--jm-font-scale, 1)); padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
 #mdv-reading-concept .mdv-outline-row > button svg { width: 14px; height: 14px; transform: rotate(90deg); transition: transform var(--mdv-duration-disclosure) var(--mdv-ease-disclosure); }
 #mdv-reading-concept .mdv-outline-row > button[aria-expanded="false"] svg { transform: rotate(0); }
 #mdv-reading-concept .jm-local-image-error { min-width: 120px; min-height: 44px; }

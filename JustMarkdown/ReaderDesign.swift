@@ -2,6 +2,10 @@
 import UIKit
 
 enum ReaderDesign {
+    static let sourceSize: CGFloat = 16
+    static let sourceHorizontalInset: CGFloat = 24
+    static let sourceTopInset: CGFloat = 76
+    static let sourceBottomInset: CGFloat = 84
     static let hitTarget: CGFloat = 44
     static let floatingIcon: CGFloat = 20
     static let compactFloatingIcon: CGFloat = 18

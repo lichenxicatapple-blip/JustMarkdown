@@ -119,6 +119,9 @@ struct ReaderScreen: View {
                     focusedAction = .open
                 }
             }
+            .onChange(of: session.sourceFocused) { _, focused in
+                if focused { toolsExpanded = false }
+            }
             .onChange(of: session.agentOpen) { _, open in
                 if open {
                     toolsExpanded = false
@@ -312,14 +315,14 @@ struct ReaderScreen: View {
     }
 
     private var floatingActions: some View {
-        let compact = horizontalSizeClass == .compact
+        let compact = horizontalSizeClass == .compact || (session.mode == "source" && session.sourceFocused)
         return GlassEffectContainer(spacing: ReaderDesign.floatingGap) {
             HStack(spacing: ReaderDesign.floatingGap) {
                 if !compact || toolsExpanded {
                     HStack(spacing: ReaderDesign.floatingGap) {
                         if session.mode == "source" {
                             Button {
-                                session.performSourceHistory("undo")
+                                session.performSourceHistory(forward: false)
                             } label: {
                                 actionIcon("arrow.uturn.backward", compact: compact)
                             }
@@ -327,7 +330,7 @@ struct ReaderScreen: View {
                             .disabled(!session.canUndoSource)
                             .accessibilityLabel("Undo").accessibilityIdentifier("SourceUndo")
                             Button {
-                                session.performSourceHistory("redo")
+                                session.performSourceHistory(forward: true)
                             } label: {
                                 actionIcon("arrow.uturn.forward", compact: compact)
                             }
@@ -397,7 +400,7 @@ struct ReaderScreen: View {
         .foregroundStyle(.primary)
         .disabled(!session.rendererReady)
         .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: toolsExpanded)
-        .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: session.mode)
+        .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: compact)
     }
 
     private func presentModelSettings() {

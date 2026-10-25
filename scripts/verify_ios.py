@@ -140,7 +140,7 @@ def main():
     if not (ROOT / "JustMarkdown.xcodeproj/project.pbxproj").is_file():
         raise SystemExit("Missing JustMarkdown.xcodeproj. Use a complete project checkout.")
     run([sys.executable, "scripts/build_native_web.py"])
-    for script in ["reader.js", "agent.js", "source-history.js", "localization.js"]:
+    for script in ["reader.js", "agent.js", "localization.js"]:
         run(["node", "--check", f"JustMarkdown/Resources/Web/{script}"])
     run(
         [

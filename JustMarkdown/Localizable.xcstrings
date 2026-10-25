@@ -2397,23 +2397,6 @@
         }
       }
     },
-    "Your changes could not be read. Keep the document open and try again.": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Your changes could not be read. Keep the document open and try again."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法读取当前编辑内容，请保留当前页面后重试。"
-          }
-        }
-      }
-    },
     "Your message": {
       "extractionState": "manual",
       "localizations": {
