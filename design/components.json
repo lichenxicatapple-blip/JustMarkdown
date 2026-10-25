@@ -88,6 +88,7 @@
       ],
       "invariants": [
         "Expanded and collapsed states reuse one native toggle and reserve no document width when collapsed.",
+        "The icon-only toggle and pane are absent when the document has no outline entries; empty headings remain entries.",
         "Automatic following scrolls only the outline pane and yields to manual outline browsing."
       ],
       "specification": "design/README.md#目录导航"

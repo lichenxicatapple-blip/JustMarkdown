@@ -60,7 +60,7 @@ struct ReaderScreen: View {
                         if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }
                     .overlay(alignment: .topLeading) {
-                        if session.mode == "preview" && !session.agentModalActive {
+                        if session.mode == "preview" && session.hasOutline && !session.agentModalActive {
                             Button {
                                 session.toggleOutline()
                             } label: {

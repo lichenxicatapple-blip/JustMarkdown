@@ -85,12 +85,14 @@ final class DocumentTests: XCTestCase {
         session.sourceChanged("# Saved before closing\n", token: token)
         session.agentOpen = true
         session.outlineExpanded = true
+        session.hasOutline = true
         await session.closeDocument()
         XCTAssertNil(session.document)
         XCTAssertNotEqual(session.documentToken, token)
         XCTAssertTrue(document.documentState.contains(.closed))
         XCTAssertFalse(session.agentOpen)
         XCTAssertFalse(session.outlineExpanded)
+        XCTAssertFalse(session.hasOutline)
         XCTAssertFalse(session.closeSaveFailed)
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "# Saved before closing\n")
         session.sourceChanged("# Stale callback\n", token: token)

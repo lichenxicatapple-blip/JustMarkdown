@@ -40,7 +40,7 @@ final class ReaderUITests: XCTestCase {
         let background = brightness.sorted()[brightness.count / 2]
         XCTAssertGreaterThan(
             brightness.filter { abs($0 - background) > 40 }.count, 12,
-            "The contents title exists but its text has not been painted", file: file, line: line)
+            "The outline element exists but its text has not been painted", file: file, line: line)
     }
 
     private func allowDataSharingIfRequested(_ app: XCUIApplication) {
@@ -154,8 +154,9 @@ final class ReaderUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
         let outline = app.buttons["OutlineToggle"]
-        if outline.label == "Show contents" { outline.tap() }
-        XCTAssertTrue(app.webViews.staticTexts["Contents"].waitForExistence(timeout: 8))
+        let firstChapter = app.webViews.links["1. 从纯文本到可阅读的文档"]
+        if !firstChapter.exists { outline.tap() }
+        XCTAssertTrue(firstChapter.waitForExistence(timeout: 8))
         XCTAssertEqual(outline.label, "Hide contents")
         record("english-reader-preview")
         outline.tap()
@@ -687,14 +688,13 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 25))
         waitForEnabled(toggle)
         XCTAssertEqual(app.webViews.firstMatch.frame.maxY, app.frame.maxY, accuracy: 1)
-        let title = app.webViews.staticTexts["Contents"]
-        if !title.exists { toggle.tap() }
         let chapter = app.webViews.links["10. 连续阅读与位置检查"]
+        if !chapter.exists { toggle.tap() }
         XCTAssertTrue(chapter.waitForExistence(timeout: 8))
         chapter.tap()
-        if !title.exists { toggle.tap() }
-        XCTAssertTrue(title.waitForExistence(timeout: 8))
-        try assertTextIsPainted(title)
+        if !chapter.exists { toggle.tap() }
+        XCTAssertTrue(chapter.waitForExistence(timeout: 8))
+        try assertTextIsPainted(chapter)
         record("long-document-before-background")
 
         let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
@@ -703,8 +703,8 @@ final class ReaderUITests: XCTestCase {
             XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 8))
             app.activate()
             XCTAssertTrue(app.wait(for: .runningForeground, timeout: 8))
-            XCTAssertTrue(title.waitForExistence(timeout: 8))
-            try assertTextIsPainted(title)
+            XCTAssertTrue(chapter.waitForExistence(timeout: 8))
+            try assertTextIsPainted(chapter)
             record("long-document-after-background-\(index)")
         }
     }

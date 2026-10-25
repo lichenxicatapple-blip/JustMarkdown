@@ -585,7 +585,7 @@
       },
       toggleMode() { switchMode(state.mode === 'preview' ? 'source' : 'preview'); },
       toggleOutline() {
-        if (state.mode !== 'preview') return;
+        if (state.mode !== 'preview' || !headings.length) return;
         state.outline = !state.outline; render();
       },
       suppressSelection() { readSelection(); },
@@ -660,11 +660,11 @@
         Object.entries(theme.palette || {}).forEach(([name, value]) => app.style.setProperty('--mdv-' + name, value));
         updateSymbols();
       },
-      async setSource(text) { sourceHistory.apply(sourceEditor.value, text); flushSource(); if (state.mode === 'preview') { updateDocument(); await documentReady; } },
+      async setSource(text) { sourceHistory.apply(sourceEditor.value, text); flushSource(); if (state.mode === 'preview') { updateDocument(); render(); await documentReady; } },
       async ready() { await documentReady; return true; },
       diagnostics() {
         const unsafeTags = Array.from(reader.querySelectorAll('script,iframe,form,style')).filter(node => node.tagName.toLowerCase() !== 'style' || !node.closest('.mdv-mermaid svg')).length;
-        return {mode:displayedMode, targetMode:state.mode, history:sourceHistory.state(), anchor:captureReadingPosition(), outline:state.outline, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:Array.from(reader.querySelectorAll('img[src^="jm-resource:"]')).map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:sourceEditor.value, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
+        return {mode:displayedMode, targetMode:state.mode, history:sourceHistory.state(), anchor:captureReadingPosition(), outline:state.outline && headings.length > 0, headings:headings.map(h=>h.textContent), math:reader.querySelectorAll('.katex').length, diagrams:reader.querySelectorAll('.mdv-mermaid svg').length, diagramErrors:reader.querySelectorAll('.mdv-diagram-error').length, localImages:Array.from(reader.querySelectorAll('img[src^="jm-resource:"]')).map(i=>({path:i.dataset.sourcePath,loaded:i.complete&&i.naturalWidth>0})), tables:reader.querySelectorAll('table').length, unsafeTags, source:sourceEditor.value, questionVisible:false, selectedText:window.getSelection()?.toString() || '', overflow:document.documentElement.scrollWidth>window.innerWidth};
       },
       async scrollToSourceLine(line) {
         await documentReady; pinnedAnchor = null; lastPosition = null;
@@ -812,19 +812,19 @@
     });
     updateDocument();
     function render() {
-      window.webkit?.messageHandlers.reader.postMessage({type:'state', mode:state.mode, outline:state.outline});
+      const hasOutline = headings.length > 0;
+      window.webkit?.messageHandlers.reader.postMessage({type:'state', token:nativeToken, mode:state.mode, outline:state.outline && hasOutline, hasOutline});
       const outlineWasExpanded = outline.dataset.expanded === 'true';
       app.classList.toggle('mdv-showing-source', displayedMode === 'source');
       reader.hidden = displayedMode !== 'preview';
       source.hidden = displayedMode !== 'source';
       agentExperience.present(state.agent);
       workspace.classList.toggle('mdv-has-agent', state.agent);
-      const showOutline = state.outline && displayedMode === 'preview';
-      outline.hidden = displayedMode !== 'preview';
+      const showOutline = hasOutline && state.outline && displayedMode === 'preview';
+      outline.hidden = !hasOutline || displayedMode !== 'preview';
       outline.dataset.expanded = String(showOutline);
       outlineBody.inert = !showOutline;
       outlineBody.setAttribute('aria-hidden', String(!showOutline));
-      outline.querySelector('.mdv-outline-header > span').setAttribute('aria-hidden', String(!showOutline));
       readingLayout.classList.toggle('mdv-with-outline', showOutline);
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) { outlineFollowPaused = false; keepCurrentHeadingVisible(); }

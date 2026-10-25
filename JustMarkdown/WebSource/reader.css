@@ -27,14 +27,10 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-app[data-mode-transition] .mdv-reading-layout { transition: none; }
 #mdv-reading-concept .mdv-outline { position: relative; z-index: 7; min-width: 0; padding: 16px var(--mdv-outline-inset); background: transparent; pointer-events: none; border-radius: 20px 0 0 20px; transition: background-color var(--mdv-duration-layout) var(--mdv-ease-layout); }
 #mdv-reading-concept .mdv-with-outline .mdv-outline { background: var(--mdv-chrome); pointer-events: auto; }
-#mdv-reading-concept .mdv-outline-inner { position: sticky; top: 16px; width: calc(var(--mdv-outline-width) - var(--mdv-outline-inset) * 2); }
-#mdv-reading-concept .mdv-outline-header { display: grid; grid-template-columns: var(--mdv-hit-target) minmax(0, 1fr); align-items: center; margin-bottom: 8px; color: var(--mdv-muted); font-size: var(--mdv-outline-text-size); }
-#mdv-reading-concept .mdv-outline-header > span { padding-left: var(--mdv-outline-label-inset); white-space: nowrap; }
+#mdv-reading-concept .mdv-outline-inner { position: sticky; top: 16px; width: calc(var(--mdv-outline-width) - var(--mdv-outline-inset) * 2); padding-top: calc(var(--mdv-hit-target) + 8px); }
 #mdv-reading-concept .mdv-outline-body { max-height: calc(100dvh - 112px); overflow-y: auto; overscroll-behavior: contain; }
-#mdv-reading-concept .mdv-outline-body,
-#mdv-reading-concept .mdv-outline-header > span { opacity: 1; transform: translateX(0); clip-path: inset(0 0 0 0); transition: opacity var(--mdv-duration-content) var(--mdv-ease-content), transform var(--mdv-duration-layout) var(--mdv-ease-layout), clip-path var(--mdv-duration-layout) var(--mdv-ease-layout); }
-#mdv-reading-concept .mdv-outline[data-expanded="false"] .mdv-outline-body,
-#mdv-reading-concept .mdv-outline[data-expanded="false"] .mdv-outline-header > span { opacity: 0; transform: translateX(calc(var(--mdv-motion-offset) * -1)); clip-path: inset(0 100% 0 0); pointer-events: none; }
+#mdv-reading-concept .mdv-outline-body { opacity: 1; transform: translateX(0); clip-path: inset(0 0 0 0); transition: opacity var(--mdv-duration-content) var(--mdv-ease-content), transform var(--mdv-duration-layout) var(--mdv-ease-layout), clip-path var(--mdv-duration-layout) var(--mdv-ease-layout); }
+#mdv-reading-concept .mdv-outline[data-expanded="false"] .mdv-outline-body { opacity: 0; transform: translateX(calc(var(--mdv-motion-offset) * -1)); clip-path: inset(0 100% 0 0); pointer-events: none; }
 #mdv-reading-concept .mdv-outline-list,
 #mdv-reading-concept .mdv-outline-children { list-style: none; padding: 0; margin: 0; }
 #mdv-reading-concept .mdv-outline-children { padding-left: var(--mdv-outline-indent); }
@@ -130,8 +126,7 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 @media (prefers-reduced-motion: reduce) {
 #mdv-reading-concept .mdv-app *,
 #mdv-reading-concept .mdv-app *::before { transition: none !important; animation: none !important; }
-#mdv-reading-concept .mdv-outline-body,
-#mdv-reading-concept .mdv-outline-header > span { transform: none !important; }
+#mdv-reading-concept .mdv-outline-body { transform: none !important; }
 
 }
 

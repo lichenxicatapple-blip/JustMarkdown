@@ -83,7 +83,7 @@ final class LocalizationTests: XCTestCase {
                 (() => {
                   const { t, formatSeconds } = window.JustMarkdownLocalization;
                   return { language: document.documentElement.lang,
-                    contents: document.querySelector('.mdv-outline-header span').textContent,
+                    contents: document.querySelector('.mdv-outline').getAttribute('aria-label'),
                     source: document.querySelector('.mdv-source-editor').getAttribute('aria-label'),
                     send: document.querySelector('.mdv-agent-send').getAttribute('aria-label'),
                     retry: t('Retry in {duration}', { duration: formatSeconds(1) }),

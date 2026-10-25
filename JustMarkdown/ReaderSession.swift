@@ -11,6 +11,7 @@ final class ReaderSession: ObservableObject {
     @Published private(set) var canUndoSource = false
     @Published private(set) var canRedoSource = false
     @Published var outlineExpanded = false
+    @Published var hasOutline = false
     @Published var rendererReady = false
     @Published var errorMessage: String?
     @Published var needsResourcePermission = false
@@ -207,6 +208,7 @@ final class ReaderSession: ObservableObject {
         mode = "preview"
         canUndoSource = false
         canRedoSource = false
+        hasOutline = false
         documentScope?.stopAccessingSecurityScopedResource()
         documentScope = incomingScope
         scopedURLs.append(contentsOf: incomingFolderScopes)
@@ -307,6 +309,7 @@ final class ReaderSession: ObservableObject {
             canUndoSource = false
             canRedoSource = false
             outlineExpanded = false
+            hasOutline = false
             resources.clear()
             documentScope?.stopAccessingSecurityScopedResource()
             documentScope = nil

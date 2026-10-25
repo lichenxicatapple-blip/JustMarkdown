@@ -185,10 +185,12 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             ready = true
             update()
         case "state":
+            guard body["token"] as? String == session.documentToken else { return }
             if let mode = body["mode"] as? String, session.mode != mode { session.mode = mode }
             if let value = body["outline"] as? Bool, session.outlineExpanded != value {
                 session.outlineExpanded = value
             }
+            if let value = body["hasOutline"] as? Bool, session.hasOutline != value { session.hasOutline = value }
         case "documentReady":
             if body["token"] as? String == session.documentToken { session.rendererReady = true }
         case "localResources":

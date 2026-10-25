@@ -521,19 +521,19 @@
     });
     updateDocument();
     function render() {
-      window.webkit?.messageHandlers.reader.postMessage({type:'state', mode:state.mode, outline:state.outline});
+      const hasOutline = headings.length > 0;
+      window.webkit?.messageHandlers.reader.postMessage({type:'state', token:nativeToken, mode:state.mode, outline:state.outline && hasOutline, hasOutline});
       const outlineWasExpanded = outline.dataset.expanded === 'true';
       app.classList.toggle('mdv-showing-source', displayedMode === 'source');
       reader.hidden = displayedMode !== 'preview';
       source.hidden = displayedMode !== 'source';
       agentExperience.present(state.agent);
       workspace.classList.toggle('mdv-has-agent', state.agent);
-      const showOutline = state.outline && displayedMode === 'preview';
-      outline.hidden = displayedMode !== 'preview';
+      const showOutline = hasOutline && state.outline && displayedMode === 'preview';
+      outline.hidden = !hasOutline || displayedMode !== 'preview';
       outline.dataset.expanded = String(showOutline);
       outlineBody.inert = !showOutline;
       outlineBody.setAttribute('aria-hidden', String(!showOutline));
-      outline.querySelector('.mdv-outline-header > span').setAttribute('aria-hidden', String(!showOutline));
       readingLayout.classList.toggle('mdv-with-outline', showOutline);
       if (!showOutline) stopOutlineFollow();
       if (showOutline && !outlineWasExpanded) { outlineFollowPaused = false; keepCurrentHeadingVisible(); }

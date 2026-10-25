@@ -303,6 +303,57 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testOutlineAvailabilityFollowsDocumentEditsAndPreservesEmptyHeadings() async throws {
+        let (session, bridge, window, root) = try await navigationReader()
+        defer {
+            bridge.detach()
+            window.isHidden = true
+            try? FileManager.default.removeItem(at: root)
+        }
+        XCTAssertTrue(session.hasOutline)
+        for markdown in [
+            "", "Plain reading content.\n", "# Document title\n\nReading content.\n",
+            "```markdown\n## This is code, not a heading\n```\n",
+        ] {
+            _ = try await bridge.call("setSource", arguments: ["payload": markdown])
+            try await waitUntil { !session.hasOutline && !session.outlineExpanded }
+            _ = try await bridge.call("toggleOutline")
+            let status = try await diagnostics(bridge)
+            XCTAssertEqual(status["outline"] as? Bool, false)
+            XCTAssertEqual(status["source"] as? String, markdown)
+            try await waitUntil {
+                try await bridge.webView.evaluateJavaScript(
+                    """
+                    (() => {
+                      const outline = document.querySelector('.mdv-outline');
+                      const layout = document.querySelector('.mdv-reading-layout');
+                      const workspace = document.querySelector('.mdv-workspace');
+                      return outline.hidden && !layout.classList.contains('mdv-with-outline')
+                        && Math.abs(workspace.getBoundingClientRect().left - layout.getBoundingClientRect().left) < 1;
+                    })()
+                    """) as? Bool == true
+            }
+        }
+
+        _ = try await bridge.call("toggleMode")
+        try await waitForMode("source", bridge: bridge)
+        let edited = "Reading content.\n\n## Added section\n\nMore content.\n"
+        _ = try await bridge.call("setSource", arguments: ["payload": edited])
+        _ = try await bridge.call("toggleMode")
+        try await waitForMode("preview", bridge: bridge)
+        try await waitUntil { session.hasOutline && session.outlineExpanded }
+        let editedStatus = try await diagnostics(bridge)
+        XCTAssertEqual(editedStatus["headings"] as? [String], ["Added section"])
+
+        let emptyHeading = "Reading content.\n\n##\n"
+        _ = try await bridge.call("setSource", arguments: ["payload": emptyHeading])
+        try await waitUntil { session.hasOutline }
+        let status = try await diagnostics(bridge)
+        XCTAssertEqual(status["headings"] as? [String], [""])
+        XCTAssertEqual(status["source"] as? String, emptyHeading)
+    }
+
+    @MainActor
     func testOutlineNavigationPreservesContentAndDestination() async throws {
         let (_, bridge, window, root) = try await navigationReader()
         defer {
