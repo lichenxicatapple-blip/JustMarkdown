@@ -55,6 +55,7 @@ struct ReaderScreen: View {
                 } else {
                     ZStack {
                         ReaderWebView(session: session)
+                            .ignoresSafeArea(.container, edges: .bottom)
                             .simultaneousGesture(TapGesture().onEnded { toolsExpanded = false })
                         if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }

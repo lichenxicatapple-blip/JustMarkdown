@@ -6,7 +6,7 @@ html:has(#mdv-reading-concept .mdv-agent[data-modal-active]) { overflow: hidden;
 #mdv-reading-concept .mdv-agent {
   position: fixed;
   z-index: 12;
-  inset: 16px 16px 16px auto;
+  inset: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)) auto;
   width: var(--mdv-agent-width);
   min-width: 0;
   padding: 0;

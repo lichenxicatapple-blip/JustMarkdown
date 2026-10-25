@@ -301,13 +301,47 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     }
 }
 
+@MainActor
+final class ReaderViewport: UIView {
+    let webView: ReaderWKWebView
+
+    init(webView: ReaderWKWebView) {
+        self.webView = webView
+        super.init(frame: .zero)
+        clipsToBounds = true
+        webView.autoresizingMask = []
+        addSubview(webView)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(sceneDidActivate(_:)), name: UIScene.didActivateNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("Use init(webView:)") }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Background snapshots temporarily resize the scene. Keep those sizes out
+        // of the live document's viewport and composited scrolling layers.
+        guard window?.windowScene?.activationState != .background else { return }
+        if webView.frame != bounds { webView.frame = bounds }
+    }
+
+    @objc private func sceneDidActivate(_ notification: Notification) {
+        guard let scene = notification.object as? UIWindowScene, scene === window?.windowScene else { return }
+        setNeedsLayout()
+        layoutIfNeeded()
+    }
+}
+
 struct ReaderWebView: UIViewRepresentable {
     @ObservedObject var session: ReaderSession
     @Environment(\.dynamicTypeSize) var dynamicType
     @Environment(\.colorScheme) var colorScheme
 
     func makeCoordinator() -> ReaderBridge { ReaderBridge(session: session) }
-    func makeUIView(context: Context) -> ReaderWKWebView { context.coordinator.webView }
-    func updateUIView(_ uiView: ReaderWKWebView, context: Context) { context.coordinator.update() }
-    static func dismantleUIView(_ uiView: ReaderWKWebView, coordinator: ReaderBridge) { coordinator.detach() }
+    func makeUIView(context: Context) -> ReaderViewport { ReaderViewport(webView: context.coordinator.webView) }
+    func updateUIView(_ uiView: ReaderViewport, context: Context) { context.coordinator.update() }
+    static func dismantleUIView(_ uiView: ReaderViewport, coordinator: ReaderBridge) { coordinator.detach() }
 }

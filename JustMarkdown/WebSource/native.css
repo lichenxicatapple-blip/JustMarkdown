@@ -11,7 +11,7 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: auto; }
 #mdv-reading-concept .mdv-article :is(h3,h4,h5,h6) { font-size: calc(16px * var(--jm-font-scale, 1)); }
 #mdv-reading-concept .mdv-outline-row a,
 #mdv-reading-concept .mdv-outline-header { font-size: calc(13px * var(--jm-font-scale, 1)); }
-#mdv-reading-concept .mdv-source-editor { font-size: calc(14px * var(--jm-font-scale, 1)); padding-bottom: 88px; }
+#mdv-reading-concept .mdv-source-editor { font-size: calc(14px * var(--jm-font-scale, 1)); padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
 #mdv-reading-concept .mdv-outline-row > button svg { width: 14px; height: 14px; transform: rotate(90deg); transition: transform var(--mdv-duration-disclosure) var(--mdv-ease-disclosure); }
 #mdv-reading-concept .mdv-outline-row > button[aria-expanded="false"] svg { transform: rotate(0); }
 #mdv-reading-concept .jm-local-image-error { min-width: 120px; min-height: 44px; }

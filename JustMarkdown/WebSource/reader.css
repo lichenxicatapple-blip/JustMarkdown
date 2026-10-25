@@ -51,7 +51,7 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: stable; }
 #mdv-reading-concept .mdv-outline-branch-clip { min-height: 0; overflow: hidden; }
 #mdv-reading-concept .mdv-workspace { grid-column: 2; display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; }
 #mdv-reading-concept .mdv-workspace.mdv-has-agent { grid-template-columns: minmax(0, 1.4fr) minmax(230px, 1fr); }
-#mdv-reading-concept .mdv-reader { min-width: 0; padding-bottom: 84px; container-type: inline-size; }
+#mdv-reading-concept .mdv-reader { min-width: 0; padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); container-type: inline-size; }
 #mdv-reading-concept .mdv-article { position: relative; max-width: var(--mdv-article-width); margin: 0 auto; padding: 32px 36px 28px; font-size: var(--mdv-text-size); line-height: var(--mdv-text-leading); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) h1 { font: 500 25px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; letter-spacing: -.5px; margin: 0 0 24px; color: var(--mdv-ink); }
 #mdv-reading-concept :is(.mdv-article,.mdv-rich-text) h2 { font: 500 18px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; margin: 25px 0 13px; color: var(--mdv-ink); }

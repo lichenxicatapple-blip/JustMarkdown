@@ -14,6 +14,35 @@ final class ReaderUITests: XCTestCase {
         add(attachment)
     }
 
+    private func assertTextIsPainted(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line)
+        throws
+    {
+        // Accessibility nodes survive a missing WebKit backing store. Check the
+        // actual screen pixels so DOM presence alone cannot pass this regression.
+        let image = try XCTUnwrap(element.screenshot().image.cgImage, file: file, line: line)
+        var pixels = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        try pixels.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(
+                CGContext(
+                    data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                    bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),
+                file: file, line: line)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        var brightness: [Int] = []
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let red = Int(pixels[offset])
+            let green = Int(pixels[offset + 1])
+            let blue = Int(pixels[offset + 2])
+            brightness.append((red + green + blue) / 3)
+        }
+        let background = brightness.sorted()[brightness.count / 2]
+        XCTAssertGreaterThan(
+            brightness.filter { abs($0 - background) > 40 }.count, 12,
+            "The contents title exists but its text has not been painted", file: file, line: line)
+    }
+
     private func allowDataSharingIfRequested(_ app: XCUIApplication) {
         let allow = app.alerts.buttons["AllowModelDataSharing"].firstMatch
         if allow.waitForExistence(timeout: 5) { allow.tap() }
@@ -644,6 +673,40 @@ final class ReaderUITests: XCTestCase {
         upper.press(forDuration: 0.01, thenDragTo: lower, withVelocity: .fast, thenHoldForDuration: 0)
         outline.tap()
         record("outline-after-fast-reading-and-reversal")
+    }
+
+    func testBackgroundWindowSnapshotsPreserveLongDocumentRendering() throws {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        let toggle = app.buttons["OutlineToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 25))
+        waitForEnabled(toggle)
+        XCTAssertEqual(app.webViews.firstMatch.frame.maxY, app.frame.maxY, accuracy: 1)
+        let title = app.webViews.staticTexts["Contents"]
+        if !title.exists { toggle.tap() }
+        let chapter = app.webViews.links["10. 连续阅读与位置检查"]
+        XCTAssertTrue(chapter.waitForExistence(timeout: 8))
+        chapter.tap()
+        if !title.exists { toggle.tap() }
+        XCTAssertTrue(title.waitForExistence(timeout: 8))
+        try assertTextIsPainted(title)
+        record("long-document-before-background")
+
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        for index in 1...3 {
+            settings.activate()
+            XCTAssertTrue(settings.wait(for: .runningForeground, timeout: 8))
+            app.activate()
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 8))
+            XCTAssertTrue(title.waitForExistence(timeout: 8))
+            try assertTextIsPainted(title)
+            record("long-document-after-background-\(index)")
+        }
     }
 
     func testTouchUndoRedoAndNewEditingBranch() {
