@@ -493,7 +493,8 @@
       reader.replaceChildren(documentFragment);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
       if (documentHeadings[0]?.tagName === 'H1' && reader.firstElementChild === documentHeadings[0]) documentHeadings.shift();
-      headings.splice(0, headings.length, ...documentHeadings);
+      // Preserve blank headings in the document, but never create an unlabeled navigation target.
+      headings.splice(0, headings.length, ...documentHeadings.filter(heading => heading.textContent.trim()));
       buildOutline();
       markHeading(headings[0]?.id);
       documentReady = enhanceDocument();
