@@ -221,8 +221,8 @@ struct ReaderScreen: View {
     private func homeContent(_ item: HomeItem, markSize: CGFloat) -> some View {
         switch item {
         case .mark:
-            Image("BrandMark").renderingMode(.template).resizable().scaledToFit()
-                .frame(width: markSize).foregroundStyle(Color("BrandMarkTint"))
+            Image("BrandMark").renderingMode(.original).resizable().scaledToFit()
+                .frame(width: markSize)
         case .slogan:
             ViewThatFits(in: .horizontal) {
                 Text(homeSlogan.joined(separator: " ")).fixedSize()

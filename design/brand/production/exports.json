@@ -4,10 +4,6 @@
   "exports" : [
     "mark.svg",
     "mark.png",
-    "mark-black.svg",
-    "mark-black.png",
-    "mark-white.svg",
-    "mark-white.png",
     "app-icon-light.svg",
     "app-icon-light.png",
     "app-icon-dark.svg",

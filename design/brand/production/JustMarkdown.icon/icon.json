@@ -2,13 +2,39 @@
   "fill-specializations" : [
     {
       "value" : {
-        "solid" : "srgb:1.00000,1.00000,1.00000,1.00000"
+        "linear-gradient" : [
+          "srgb:0.08627,0.54118,1.00000,1.00000",
+          "srgb:0.00000,0.32157,0.91373,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 1
+          }
+        }
       }
     },
     {
       "appearance" : "dark",
       "value" : {
-        "solid" : "srgb:0.10980,0.12157,0.13725,1.00000"
+        "linear-gradient" : [
+          "srgb:0.03137,0.38824,0.84706,1.00000",
+          "srgb:0.00000,0.21176,0.61961,1.00000"
+        ],
+        "orientation" : {
+          "start" : {
+            "x" : 0.5,
+            "y" : 0
+          },
+          "stop" : {
+            "x" : 0.5,
+            "y" : 1
+          }
+        }
       }
     }
   ],
@@ -18,25 +44,44 @@
         {
           "fill-specializations" : [
             {
-              "value" : {
-                "solid" : "srgb:0.36863,0.46667,0.54118,1.00000"
-              }
-            },
-            {
-              "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.63922,0.72941,0.79608,1.00000"
-              }
-            },
-            {
-              "appearance" : "tinted",
-              "value" : {
-                "solid" : "extended-gray:0.00000,1.00000"
-              }
+              "value" : "none"
             }
           ],
-          "image-name" : "01-Mark.svg",
-          "name" : ".md"
+          "glass-specializations" : [
+            {
+              "value" : false
+            }
+          ],
+          "image-name" : "03-PageTurn.svg",
+          "name" : "03-PageTurn"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : "none"
+            }
+          ],
+          "glass-specializations" : [
+            {
+              "value" : false
+            }
+          ],
+          "image-name" : "02-Content.svg",
+          "name" : "02-Content"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "value" : "none"
+            }
+          ],
+          "glass-specializations" : [
+            {
+              "value" : false
+            }
+          ],
+          "image-name" : "01-Paper.svg",
+          "name" : "01-Paper"
         }
       ],
       "shadow" : {

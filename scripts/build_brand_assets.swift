@@ -4,8 +4,8 @@ import Foundation
 
 struct Brand: Decodable {
     struct Appearance: Decodable {
-        let foreground: String
         let background: String
+        let backgroundEnd: String
     }
     struct Colors: Decodable {
         let light: Appearance
@@ -13,6 +13,8 @@ struct Brand: Decodable {
     }
     let name: String
     let iconViewBox: String
+    let homeCornerRadius: Double
+    let ink: String
     let colors: Colors
 }
 
@@ -27,31 +29,18 @@ func channels(_ hex: String) throws -> [Double] {
     return [16, 8, 0].map { Double((value >> $0) & 255) / 255 }
 }
 
-func iconFill(_ color: String) throws -> [String: String] {
+func iconColor(_ color: String) throws -> String {
     let rgb = try channels(color)
-    return [
-        "solid": String(
-            format: "srgb:%.5f,%.5f,%.5f,1.00000", locale: Locale(identifier: "en_US_POSIX"),
-            rgb[0], rgb[1], rgb[2])
-    ]
+    return String(
+        format: "srgb:%.5f,%.5f,%.5f,1.00000", locale: Locale(identifier: "en_US_POSIX"),
+        rgb[0], rgb[1], rgb[2])
 }
 
-func colorEntry(_ color: String, dark: Bool = false) throws -> [String: Any] {
-    let rgb = try channels(color)
-    var entry: [String: Any] = [
-        "idiom": "universal",
-        "color": [
-            "color-space": "srgb",
-            "components": [
-                "red": String(format: "0x%02X", Int((rgb[0] * 255).rounded())),
-                "green": String(format: "0x%02X", Int((rgb[1] * 255).rounded())),
-                "blue": String(format: "0x%02X", Int((rgb[2] * 255).rounded())),
-                "alpha": "1.000",
-            ],
-        ],
+func iconBackground(_ appearance: Brand.Appearance) throws -> [String: Any] {
+    [
+        "linear-gradient": [try iconColor(appearance.background), try iconColor(appearance.backgroundEnd)],
+        "orientation": ["start": ["x": 0.5, "y": 0], "stop": ["x": 0.5, "y": 1]],
     ]
-    if dark { entry["appearances"] = [["appearance": "luminosity", "value": "dark"]] }
-    return entry
 }
 
 func json(_ value: Any) throws -> Data {
@@ -76,24 +65,59 @@ func viewBox(_ value: String) throws -> [String] {
     return parts
 }
 
-func svg(_ master: Data, color: String, background: String? = nil, canvas: String? = nil) throws -> Data {
+func svg(
+    _ master: Data, color: String, canvas: String, background: Brand.Appearance? = nil,
+    cornerRadius: Double = 0, layer: String? = nil
+) throws -> Data {
     let document = try XMLDocument(data: master)
-    guard let root = document.rootElement(), let bounds = root.attribute(forName: "viewBox")?.stringValue else {
+    guard let root = document.rootElement(), let bounds = root.attribute(forName: "viewBox")?.stringValue,
+        let definitions = root.elements(forName: "defs").first
+    else {
         throw failure("The logo master must have an SVG root and a tightly bounded viewBox.")
     }
-    let dimensions = try viewBox(canvas ?? bounds)
-    attribute(root, "viewBox", canvas ?? bounds)
-    attribute(root, "width", canvas == nil ? dimensions[2] : "1024")
-    attribute(root, "height", canvas == nil ? dimensions[3] : "1024")
-    let fills = try root.nodes(forXPath: "descendant-or-self::*[@fill='currentColor']")
-    guard !fills.isEmpty else { throw failure("Use currentColor for the master logo's fill.") }
-    for case let element as XMLElement in fills { attribute(element, "fill", color) }
+    _ = try viewBox(bounds)
+    let dimensions = try viewBox(canvas)
+    guard cornerRadius.isFinite, cornerRadius >= 0,
+        cornerRadius <= min(Double(dimensions[2])!, Double(dimensions[3])!) / 2
+    else { throw failure("Invalid homepage icon corner radius.") }
+    _ = try channels(color)
+    attribute(root, "viewBox", canvas)
+    attribute(root, "width", "1024")
+    attribute(root, "height", "1024")
+    let fills = try root.nodes(forXPath: "descendant-or-self::*[@fill='currentColor' or @stop-color='currentColor']")
+    guard !fills.isEmpty else { throw failure("Use currentColor for the master logo's ink.") }
+    for case let element as XMLElement in fills {
+        for name in ["fill", "stop-color"] where element.attribute(forName: name)?.stringValue == "currentColor" {
+            attribute(element, name, color)
+        }
+    }
+    if let layer {
+        let groups = root.elements(forName: "g")
+        guard groups.contains(where: { $0.attribute(forName: "id")?.stringValue == layer }) else {
+            throw failure("Missing brand layer: \(layer)")
+        }
+        for group in groups where group.attribute(forName: "id")?.stringValue != layer { group.detach() }
+    }
     if let background {
+        _ = try channels(background.background)
+        _ = try channels(background.backgroundEnd)
+        let gradient = XMLElement(name: "linearGradient")
+        for (name, value) in [("id", "brand-background"), ("x1", "0"), ("y1", "0"), ("x2", "0"), ("y2", "1")] {
+            attribute(gradient, name, value)
+        }
+        for (offset, color) in [("0", background.background), ("1", background.backgroundEnd)] {
+            let stop = XMLElement(name: "stop")
+            attribute(stop, "offset", offset)
+            attribute(stop, "stop-color", color)
+            gradient.addChild(stop)
+        }
+        definitions.addChild(gradient)
         let rectangle = XMLElement(name: "rect")
         for (name, value) in zip(["x", "y", "width", "height"], dimensions) {
             attribute(rectangle, name, value)
         }
-        attribute(rectangle, "fill", background)
+        attribute(rectangle, "fill", "url(#brand-background)")
+        if cornerRadius > 0 { attribute(rectangle, "rx", String(cornerRadius)) }
         root.insertChild(rectangle, at: 0)
     }
     document.insertChild(
@@ -133,29 +157,33 @@ func generate(_ root: URL) throws -> [String: Data] {
     let production = "design/brand/production"
     let assets = "JustMarkdown/Assets.xcassets"
     var files: [String: Data] = [:]
-    let variants: [(String, String, String?)] = [
-        ("mark", brand.colors.light.foreground, nil),
-        ("mark-black", "#000000", nil),
-        ("mark-white", "#ffffff", nil),
-        ("app-icon-light", brand.colors.light.foreground, brand.colors.light.background),
-        ("app-icon-dark", brand.colors.dark.foreground, brand.colors.dark.background),
+    let variants: [(String, Brand.Appearance?)] = [
+        ("mark", nil),
+        ("app-icon-light", brand.colors.light),
+        ("app-icon-dark", brand.colors.dark),
     ]
-    for (name, foreground, background) in variants {
-        let vector = try svg(master, color: foreground, background: background, canvas: brand.iconViewBox)
+    for (name, background) in variants {
+        let vector = try svg(master, color: brand.ink, canvas: brand.iconViewBox, background: background)
         files["\(production)/\(name).svg"] = vector
         files["\(production)/\(name).png"] = try png(vector)
     }
     let icon = "\(production)/\(brand.name).icon"
-    files["\(icon)/Assets/01-Mark.svg"] = files["\(production)/mark.svg"]
-    let layerColors: [[String: Any]] = [
-        ["value": try iconFill(brand.colors.light.foreground)],
-        ["appearance": "dark", "value": try iconFill(brand.colors.dark.foreground)],
-        ["appearance": "tinted", "value": ["solid": "extended-gray:0.00000,1.00000"]],
-    ]
+    var layers: [[String: Any]] = []
+    for (name, identifier) in [("01-Paper", "paper"), ("02-Content", "content"), ("03-PageTurn", "page-turn")] {
+        let filename = "\(name).svg"
+        files["\(icon)/Assets/\(filename)"] = try svg(
+            master, color: brand.ink, canvas: brand.iconViewBox, layer: identifier)
+        layers.append([
+            "image-name": filename, "name": name,
+            "fill-specializations": [["value": "none"]],
+            "glass-specializations": [["value": false]],
+        ])
+    }
     files["\(icon)/icon.json"] = try json([
         "groups": [
             [
-                "layers": [["image-name": "01-Mark.svg", "name": ".md", "fill-specializations": layerColors]],
+                // Icon Composer lists frontmost layers first; SVG paints back-to-front.
+                "layers": Array(layers.reversed()),
                 "shadow": ["kind": "none", "opacity": 0],
                 "translucency": ["enabled": false, "value": 0],
                 "specular": false,
@@ -163,23 +191,27 @@ func generate(_ root: URL) throws -> [String: Data] {
         ],
         "supported-platforms": ["squares": "shared"],
         "fill-specializations": [
-            ["value": try iconFill(brand.colors.light.background)],
-            ["appearance": "dark", "value": try iconFill(brand.colors.dark.background)],
+            ["value": try iconBackground(brand.colors.light)],
+            ["appearance": "dark", "value": try iconBackground(brand.colors.dark)],
         ],
     ])
     let info: [String: Any] = ["author": "xcode", "version": 1]
-    files["\(assets)/BrandMark.imageset/BrandMark.svg"] = try svg(master, color: "#000000")
+    let home = "\(assets)/BrandMark.imageset"
+    for (name, appearance) in [("BrandMark", brand.colors.light), ("BrandMark-dark", brand.colors.dark)] {
+        files["\(home)/\(name).svg"] = try svg(
+            master, color: brand.ink, canvas: brand.iconViewBox, background: appearance,
+            cornerRadius: brand.homeCornerRadius)
+    }
     files["\(assets)/BrandMark.imageset/Contents.json"] = try json([
-        "images": [["filename": "BrandMark.svg", "idiom": "universal"]],
-        "info": info,
-        "properties": ["preserves-vector-representation": true, "template-rendering-intent": "template"],
-    ])
-    files["\(assets)/BrandMarkTint.colorset/Contents.json"] = try json([
-        "colors": [
-            try colorEntry(brand.colors.light.foreground),
-            try colorEntry(brand.colors.dark.foreground, dark: true),
+        "images": [
+            ["filename": "BrandMark.svg", "idiom": "universal"],
+            [
+                "filename": "BrandMark-dark.svg", "idiom": "universal",
+                "appearances": [["appearance": "luminosity", "value": "dark"]],
+            ],
         ],
         "info": info,
+        "properties": ["preserves-vector-representation": true, "template-rendering-intent": "original"],
     ])
     files["\(production)/exports.json"] = try json([
         "name": brand.name,
@@ -204,10 +236,7 @@ do {
         .resolvingSymlinksInPath()
     let files = try generate(root)
     let manager = FileManager.default
-    let roots = [
-        "design/brand/production", "JustMarkdown/Assets.xcassets/BrandMark.imageset",
-        "JustMarkdown/Assets.xcassets/BrandMarkTint.colorset",
-    ]
+    let roots = ["design/brand/production", "JustMarkdown/Assets.xcassets/BrandMark.imageset"]
     var extras: [String] = []
     for directory in roots {
         let url = root.appendingPathComponent(directory)

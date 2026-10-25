@@ -1,14 +1,13 @@
 # JustMarkdown 品牌资源
 
-字形和配色集中维护在本目录：
+图形和配色集中维护在本目录：
 
 | 维护源 | 内容 |
 | --- | --- |
-| `mark.svg` | 唯一字形母版；填充使用 `currentColor`，画布紧贴图形边界 |
-| `brand.json` | 首页与 App 图标共用的浅色、深色配色，以及图标画布 |
+| `mark.svg` | 唯一矢量母版；纸页、`.md` 排版与卷页分组，画布紧贴纸页边界 |
+| `brand.json` | 墨色、浅深色背景渐变、系统图标画布与首页图标圆角 |
 
-标志为小写 `.md` 合字，不依赖字体。竖笔以 98 为粗细基准，d 的字腹上下沿为 88；m、d 的字宽比例约为 1.25∶1，共用基线和端部圆角。
-字形设计参考见 `approved-reference.png`。
+标志为印有 `.md` 后缀和三行正文的白色纸页，右下角翻起。文字已转为路径，不依赖字体；墨色通过 `currentColor` 绑定配色，纸张与卷页的色阶在母版中维护。定稿参考见 `approved-reference.png`。
 
 ## 生成与检查
 
@@ -23,10 +22,9 @@ python3 scripts/build_native_web.py --check
 
 | 生成位置（仓库根目录下） | 内容 |
 | --- | --- |
-| `design/brand/production/` | 透明标志、黑白版本、浅深色 App 图标、Icon Composer 图标包及导出清单 |
-| `JustMarkdown/Assets.xcassets/BrandMark.imageset` | 首页模板矢量与资源描述 |
-| `JustMarkdown/Assets.xcassets/BrandMarkTint.colorset` | 首页浅深色配色 |
+| `design/brand/production/` | 透明纸页标志、浅深色 App 图标、Icon Composer 图标包及导出清单 |
+| `JustMarkdown/Assets.xcassets/BrandMark.imageset` | 包含背景的浅深色首页矢量与资源描述；保留原始颜色 |
 
 `--check` 重新生成并比较所有资源，遗漏更新、直接修改或遗留文件都会使检查失败。CI 和模拟器验证复用同一入口。
 
-在 Icon Composer 中核对 `production/JustMarkdown.icon` 的浅色、深色与着色外观；调整回到母版与配色。输入不烘焙圆角、阴影或高光，由系统处理外形。
+Icon Composer 图标包从母版生成纸页、排版和卷页三层，背景渐变取自同一配色。在 Icon Composer 中核对 `production/JustMarkdown.icon` 的浅色、深色与着色外观；调整回到母版与配色。系统图标不包含外部白边或圆角遮罩，由系统处理外形；首页矢量包含独立的圆角背景。
