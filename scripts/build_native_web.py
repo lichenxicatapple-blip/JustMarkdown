@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,45 @@ def vendor_assets():
     if files - recorded - {"assets.json", "README.md", ".DS_Store"}:
         raise ValueError("Unlisted vendor files; update assets.json before packaging")
     return assets
+
+
+def audit_dependencies():
+    """Check the pinned npm versions against published OSV advisories."""
+    assets = [asset for asset in vendor_assets() if asset.get("target", "web") == "web"]
+    query = {
+        "queries": [
+            {"version": asset["version"], "package": {"name": asset["package"], "ecosystem": "npm"}}
+            for asset in assets
+        ]
+    }
+    request = urllib.request.Request(
+        "https://api.osv.dev/v1/querybatch",
+        data=json.dumps(query).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            results = json.load(response)["results"]
+        if (
+            not isinstance(results, list)
+            or len(results) != len(assets)
+            or any(
+                not isinstance(result, dict) or "error" in result or result.get("next_page_token")
+                for result in results
+            )
+        ):
+            raise ValueError("Incomplete advisory response")
+    except (OSError, ValueError, KeyError) as error:
+        raise SystemExit(f"Dependency advisory check failed: {type(error).__name__}") from None
+    findings = [
+        f"{asset['package']} {asset['version']}: "
+        + ", ".join(item["id"] for item in result["vulns"])
+        for asset, result in zip(assets, results)
+        if result.get("vulns")
+    ]
+    if findings:
+        raise SystemExit("Published dependency advisories:\n" + "\n".join(findings))
+    print(f"Checked {len(assets)} pinned npm dependencies against OSV; no matching advisories.")
 
 
 def web_localizations():
@@ -315,7 +355,14 @@ def main():
         action="store_true",
         help="Check generated files without changing them",
     )
+    parser.add_argument(
+        "--audit-dependencies",
+        action="store_true",
+        help="Query published dependency advisories (requires network)",
+    )
     args = parser.parse_args()
+    if args.audit_dependencies:
+        audit_dependencies()
     subprocess.run(
         [
             "xcrun",

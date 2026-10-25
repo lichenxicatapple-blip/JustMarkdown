@@ -47,7 +47,7 @@ jobs:
           "$RUNNER_TEMP/gitleaks" git . --log-opts=--all --no-banner --redact=100
       - name: Check offline resources and project files
         run: |
-          python3 scripts/build_native_web.py --check
+          python3 scripts/build_native_web.py --check --audit-dependencies
           python3 -m compileall -q scripts
           plutil -lint JustMarkdown/Info.plist JustMarkdown/PrivacyInfo.xcprivacy JustMarkdown.xcodeproj/project.pbxproj
           xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests scripts

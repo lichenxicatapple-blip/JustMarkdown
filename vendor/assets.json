@@ -12,13 +12,13 @@
   },
   {
     "file": "markdown-it.js",
-    "url": "https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js",
+    "url": "https://cdn.jsdelivr.net/npm/markdown-it@14.3.3/dist/markdown-it.min.js",
     "licenseFile": "markdown-it.LICENSE",
-    "licenseURL": "https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/LICENSE",
+    "licenseURL": "https://cdn.jsdelivr.net/npm/markdown-it@14.3.3/LICENSE",
     "package": "markdown-it",
-    "version": "14.1.0",
+    "version": "14.3.3",
     "license": "MIT",
-    "sha256": "38c70a1e7ca91ab40e2d9e6e60129851a717ed1c7d4acbbdd41bf9503791cf68",
+    "sha256": "494ba53db1aac9f676317dda7062bd9545b5f0bbe3f12b0ab1ab4f813825cfb0",
     "licenseSha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
   },
   {
