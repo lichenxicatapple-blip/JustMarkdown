@@ -168,7 +168,9 @@ final class AgentFlowTests: XCTestCase {
         bridge.webView.frame = controller.view.bounds
         bridge.webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         controller.view.addSubview(bridge.webView)
-        try await wait {
+        // Hosted simulators can spend over 30 seconds launching a WebContent
+        // process before this page runs. Keep that budget separate from actions.
+        try await wait(timeout: 60) {
             if let error = session.errorMessage {
                 throw NSError(domain: "ReaderFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
             }

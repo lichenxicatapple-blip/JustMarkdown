@@ -768,6 +768,11 @@ final class ReaderUITests: XCTestCase {
         selection.lifetime = .keepAlways
         add(selection)
         record("native-selection-menu")
+        // Selection handles can remain visible with the system edit menu hidden.
+        // Tapping the selected text requests that menu through UIKit's normal gesture.
+        if !app.menuItems.firstMatch.waitForExistence(timeout: 6) {
+            paragraph.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
         let ask = app.menuItems["AI"]
         XCTAssertTrue(ask.waitForExistence(timeout: 6))
         ask.tap()
