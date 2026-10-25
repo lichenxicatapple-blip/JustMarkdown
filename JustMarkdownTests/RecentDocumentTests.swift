@@ -3,6 +3,46 @@ import XCTest
 @testable import JustMarkdown
 
 final class RecentDocumentTests: XCTestCase {
+    private func invalidBookmark(_ url: URL) throws -> BookmarkedLocation {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "url": url.absoluteString, "bookmark": Data("invalid bookmark".utf8).base64EncodedString(),
+        ])
+        return try JSONDecoder().decode(BookmarkedLocation.self, from: data)
+    }
+
+    @MainActor
+    func testAppOwnedRecentFileCanRecoverFromAnInvalidBookmark() async throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".md")
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: file)
+        }
+        try Data("# Local document\n".utf8).write(to: file)
+        let recent = RecentDocument(
+            id: UUID(), file: try invalidBookmark(file), identity: file, folders: [])
+        let session = ReaderSession(defaults: defaults)
+        let opened = try await session.openRecent(recent)
+        XCTAssertTrue(opened)
+        XCTAssertEqual(session.document?.text, "# Local document\n")
+        XCTAssertEqual(session.recentDocuments.documents.first?.id, recent.id)
+        await session.closeDocument()
+    }
+
+    func testInvalidExternalBookmarkCannotUseAnAppOwnedSymlinkToBypassResolution() throws {
+        let external = try XCTUnwrap(
+            Bundle.main.url(forResource: "reading-guide", withExtension: "md", subdirectory: "Sample"))
+        XCTAssertFalse(BookmarkedLocation.isAppOwned(external))
+        let link = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".md")
+        defer { try? FileManager.default.removeItem(at: link) }
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: external)
+        for url in [external, link] {
+            XCTAssertFalse(BookmarkedLocation.isAppOwned(url))
+            XCTAssertThrowsError(try invalidBookmark(url).resolve())
+        }
+    }
+
     @MainActor
     func testHistoryKeepsTenDistinctDocumentsInLastOpenedOrderAcrossReload() async throws {
         let suite = UUID().uuidString

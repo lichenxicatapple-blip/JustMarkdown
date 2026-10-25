@@ -1,3 +1,4 @@
+import Network
 import XCTest
 
 @testable import JustMarkdown
@@ -63,6 +64,88 @@ private actor AnswerCollector {
     func append(_ value: String) { text += value }
 }
 
+/// A real loopback endpoint exercises URLSession's redirect delegate, including streamed POST bodies.
+private final class RedirectFixtureServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "JustMarkdownTests.RedirectFixture")
+    private let lock = NSLock()
+    private var requests: [String] = []
+    private let status: Int
+
+    init(status: Int) throws {
+        self.status = status
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+            connection.start(queue: self.queue)
+            self.receive(connection)
+        }
+    }
+
+    func start() async throws -> String {
+        let port: UInt16 = try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { [listener] state in
+                switch state {
+                case .ready:
+                    listener.stateUpdateHandler = nil
+                    if let port = listener.port {
+                        continuation.resume(returning: port.rawValue)
+                    } else {
+                        continuation.resume(throwing: URLError(.cannotConnectToHost))
+                    }
+                case .failed(let error):
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: error)
+                default: break
+                }
+            }
+            listener.start(queue: queue)
+        }
+        return "http://127.0.0.1:\(port)/v1"
+    }
+
+    func stop() { listener.cancel() }
+    func paths() -> [String] { lock.withLock { requests } }
+
+    private func receive(_ connection: NWConnection, buffered: Data = Data()) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, complete, error in
+            guard let self, error == nil else {
+                connection.cancel()
+                return
+            }
+            let request = buffered + (data ?? Data())
+            guard let boundary = request.range(of: Data("\r\n\r\n".utf8)) else {
+                if complete { connection.cancel() } else { self.receive(connection, buffered: request) }
+                return
+            }
+            let headers = String(decoding: request[..<boundary.lowerBound], as: UTF8.self).components(
+                separatedBy: "\r\n")
+            let length =
+                headers.first { $0.lowercased().hasPrefix("content-length:") }
+                .flatMap { Int($0.dropFirst("content-length:".count).trimmingCharacters(in: .whitespaces)) } ?? 0
+            if request.count < boundary.upperBound + length {
+                if complete { connection.cancel() } else { self.receive(connection, buffered: request) }
+                return
+            }
+            let path = headers.first?.split(separator: " ").dropFirst().first.map(String.init) ?? ""
+            self.lock.withLock { self.requests.append(path) }
+            let code = path == "/unapproved" ? 418 : self.status
+            guard let port = self.listener.port else {
+                connection.cancel()
+                return
+            }
+            let response =
+                "HTTP/1.1 \(code) Fixture\r\nLocation: http://127.0.0.1:\(port.rawValue)/unapproved\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+}
+
 private actor PendingCatalogLoads {
     private var requests: [(String, String)] = []
     private var pending: [Int: CheckedContinuation<[CatalogModel], Error>] = [:]
@@ -92,6 +175,39 @@ private actor PendingCatalogLoads {
 }
 
 final class ModelClientTests: XCTestCase {
+    func testModelRequestsDoNotRedirectToAnotherServicePath() async throws {
+        for api in ModelAPIProtocol.allCases {
+            let server = try RedirectFixtureServer(status: 307)
+            defer { server.stop() }
+            let baseURL = try await server.start()
+            do {
+                _ = try await ModelClient().stream(
+                    configuration: ModelConfiguration(baseURL: baseURL, model: "test", apiProtocol: api),
+                    key: "test-only-key", messages: [ChatMessage(role: "user", content: "Private document")]
+                ) { _ in XCTFail("A redirect must not produce an answer") }
+                XCTFail("The configured endpoint must report its redirect")
+            } catch ModelError.service(let status, _) {
+                XCTAssertEqual(status, 307)
+            } catch {
+                XCTFail("Expected the original redirect response, received \(error)")
+            }
+            XCTAssertEqual(server.paths(), ["/v1/" + api.path], "Do not forward the document to another path")
+        }
+
+        let server = try RedirectFixtureServer(status: 302)
+        defer { server.stop() }
+        let baseURL = try await server.start()
+        do {
+            _ = try await ModelCatalog().models(baseURL: baseURL, key: "test-only-key")
+            XCTFail("The catalog must report the original redirect")
+        } catch ModelCatalogError.unavailable(let status) {
+            XCTAssertEqual(status, 302)
+        } catch {
+            XCTFail("Expected the original catalog redirect, received \(error)")
+        }
+        XCTAssertEqual(server.paths(), ["/v1/models"], "Do not forward credentials to another path")
+    }
+
     func testCatalogSearchMatchesNamesAndIDsWithoutSpacesOrHyphens() {
         let byID = CatalogModel(id: "openai/gpt-6.1-sol")
         let byName = CatalogModel(id: "provider/123", name: "GPT 6.1 Sol")
@@ -496,6 +612,8 @@ final class ModelClientTests: XCTestCase {
         XCTAssertEqual(text, "中文回答")
         let request = try XCTUnwrap(ModelURLProtocol.fixture.request())
         XCTAssertEqual(request.url?.path, "/v1/responses")
+        let version = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "User-Agent"), "JustMarkdown/" + version)
         let body = try ModelWireFormat.object(XCTUnwrap(request.httpBody))
         XCTAssertEqual(body["instructions"] as? String, "instruction")
         XCTAssertEqual((body["input"] as? [[String: String]])?.map { $0["role"] }, ["user", "assistant", "user"])

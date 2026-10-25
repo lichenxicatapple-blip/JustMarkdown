@@ -23,7 +23,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Scan the working tree for credentials
+          fetch-depth: 0
+      - name: Scan the working tree and Git history for credentials
         run: |
           case "$(uname -m)" in
             arm64)
@@ -43,6 +44,7 @@ jobs:
           printf '%s  %s\n' "$gitleaks_digest" "$gitleaks_archive" | shasum -a 256 --check
           tar -xzf "$gitleaks_archive" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" dir . --no-banner --redact=100
+          "$RUNNER_TEMP/gitleaks" git . --log-opts=--all --no-banner --redact=100
       - name: Check offline resources and project files
         run: |
           python3 scripts/build_native_web.py --check

@@ -24,7 +24,8 @@ struct ModelClient: Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream, application/json", forHTTPHeaderField: "Accept")
-        request.setValue("JustMarkdown/1.0", forHTTPHeaderField: "User-Agent")
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        request.setValue(version.map { "JustMarkdown/" + $0 } ?? "JustMarkdown", forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         let allowsTools = !tools.isEmpty || !exchanges.isEmpty
         request.httpBody =
@@ -32,7 +33,7 @@ struct ModelClient: Sendable {
             ? ModelToolWire.requestBody(
                 configuration, messages: messages, tools: tools, exchanges: exchanges)
             : ModelWireFormat.requestBody(configuration, messages: messages)
-        let (bytes, response) = try await session.bytes(for: request)
+        let (bytes, response) = try await session.bytes(for: request, delegate: ModelRequestPolicy.shared)
         guard let http = response as? HTTPURLResponse else { throw ModelError.invalidResponse }
         guard (200...299).contains(http.statusCode) else {
             var data = Data()

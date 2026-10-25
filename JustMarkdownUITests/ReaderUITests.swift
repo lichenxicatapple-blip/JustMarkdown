@@ -244,7 +244,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(mode.frame.origin.y, originalModeFrame.origin.y, accuracy: 0.5)
         record("source-portrait")
         editor.tap()
-        editor.typeText("\n\n## Native UI verification\n\nSaved from the source view.\n\n")
+        typeSource("\n\n## Native UI verification\n\nSaved from the source view.\n\n", into: editor)
         showTools(app)
         mode.tap()
         showTools(app)
@@ -589,7 +589,7 @@ final class ReaderUITests: XCTestCase {
         let editor = app.webViews.textViews["Markdown 源码"]
         XCTAssertTrue(editor.waitForExistence(timeout: 6))
         editor.tap()
-        editor.typeText("\n\nUnsaved close verification.\n")
+        typeSource("\n\nUnsaved close verification.\n", into: editor)
         app.buttons["CloseDocument"].tap()
         let alert = app.alerts["未能保存文档"]
         XCTAssertTrue(alert.waitForExistence(timeout: 8))
@@ -620,6 +620,7 @@ final class ReaderUITests: XCTestCase {
         app.launch()
         let outline = app.buttons["OutlineToggle"]
         XCTAssertTrue(outline.waitForExistence(timeout: 25))
+        waitForEnabled(outline)
         if outline.label == "展开文章目录" { outline.tap() }
         let chapter = app.webViews.links["10. 连续阅读与位置检查"]
         XCTAssertTrue(chapter.waitForExistence(timeout: 8))
@@ -778,7 +779,39 @@ final class ReaderUITests: XCTestCase {
                 toggle.waitForExistence(timeout: 5) || mode.waitForExistence(timeout: 5),
                 "Reading controls become available after the foreground closing transition")
         }
+        waitForEnabled(toggle.exists ? toggle : mode)
         if toggle.exists && !mode.exists { toggle.tap() }
+    }
+
+    private func waitForEnabled(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: element)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 25), .completed, file: file, line: line)
+    }
+
+    /// WebKit commits injected text asynchronously. Acknowledge each line before sending the next Return.
+    private func typeSource(
+        _ text: String, into editor: XCUIElement, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        for (index, part) in text.components(separatedBy: "\n").enumerated() {
+            if index > 0 {
+                let before = editor.value as? String
+                editor.typeText("\n")
+                let newline = XCTNSPredicateExpectation(
+                    predicate: NSPredicate { _, _ in (editor.value as? String) != before }, object: nil)
+                guard XCTWaiter.wait(for: [newline], timeout: 8) == .completed else {
+                    XCTFail("The editor did not commit the newline", file: file, line: line)
+                    return
+                }
+            }
+            guard !part.isEmpty else { continue }
+            editor.typeText(part)
+            let committed = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in (editor.value as? String)?.contains(part) == true }, object: nil)
+            guard XCTWaiter.wait(for: [committed], timeout: 8) == .completed else {
+                XCTFail("The editor did not commit the complete input line", file: file, line: line)
+                return
+            }
+        }
     }
 
     private func openQuestionInput(_ app: XCUIApplication) -> XCUIElement {

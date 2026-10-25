@@ -177,6 +177,46 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedSourceSynchronizationKeepsCurrentDocumentAndRecentHistory() async throws {
+        let (session, bridge, window, root) = try await navigationReader()
+        defer {
+            bridge.detach()
+            window.isHidden = true
+            try? FileManager.default.removeItem(at: root)
+        }
+        let original = try XCTUnwrap(session.document)
+        let token = session.documentToken
+        let history = session.recentDocuments.documents
+        let incoming = root.appendingPathComponent("next.md")
+        try Data("# Next document\n".utf8).write(to: incoming)
+        _ = try await bridge.webView.evaluateJavaScript(
+            """
+            window.readerTestFlushSource = window.JustMarkdown.flushSource;
+            document.querySelector('.mdv-source-editor').value = '# Pending edits\\n';
+            window.JustMarkdown.flushSource = () => { throw new Error('source unavailable'); };
+            void 0;
+            """)
+
+        await session.open(incoming)
+        XCTAssertTrue(session.document === original, "A failed source read must not close the current document")
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertEqual(session.recentDocuments.documents, history)
+        XCTAssertNotNil(session.errorMessage)
+        XCTAssertFalse(original.documentState.contains(.closed))
+        XCTAssertEqual(try String(contentsOf: incoming, encoding: .utf8), "# Next document\n")
+
+        _ = try await bridge.webView.evaluateJavaScript(
+            "window.JustMarkdown.flushSource = window.readerTestFlushSource; void 0;")
+        // Retry after the source bridge recovers; no failed-open entry was recorded.
+        await session.open(incoming)
+        XCTAssertEqual(session.document?.fileURL, incoming)
+        XCTAssertEqual(session.recentDocuments.documents.count, history.count + 1)
+        XCTAssertEqual(try String(contentsOf: original.fileURL, encoding: .utf8), "# Pending edits\n")
+        session.bridge = nil
+        await session.closeDocument()
+    }
+
+    @MainActor
     func testCloseFlushesLatestSourceBufferBeforeDebounceFires() async throws {
         let (session, bridge, window, root) = try await navigationReader()
         defer {

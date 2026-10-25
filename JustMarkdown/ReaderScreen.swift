@@ -74,6 +74,7 @@ struct ReaderScreen: View {
                                     ? String(localized: "Hide contents") : String(localized: "Show contents")
                             )
                             .accessibilityIdentifier("OutlineToggle")
+                            .disabled(!session.rendererReady)
                         }
                     }
                     .overlay(alignment: .topTrailing) {
@@ -393,6 +394,7 @@ struct ReaderScreen: View {
             }
         }
         .foregroundStyle(.primary)
+        .disabled(!session.rendererReady)
         .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: toolsExpanded)
         .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: session.mode)
     }

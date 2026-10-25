@@ -784,6 +784,50 @@ final class AgentFlowTests: XCTestCase {
         try await wait { session.document?.text == "# 文档\n\n新文。\n" }
     }
 
+    func testRepeatedToolsPauseRemainingCallsInTheSameModelTurn() async throws {
+        let doc = AgentAttachment(
+            text: "Document", markdown: "Document", mode: "source", scope: "document", location: nil, start: nil,
+            end: nil)
+        let snapshot = AgentSnapshot(
+            question: "Read and edit the document", attachment: doc,
+            history: [.init(role: "user", markdown: "Read and edit the document", attachment: doc, document: doc)],
+            document: doc)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentFixtureProtocol.self]
+        let transport = AgentModelTransport(client: ModelClient(session: URLSession(configuration: configuration)))
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(calls: [
+                ModelToolCall(id: "first", name: "read_document", arguments: "{}"),
+                ModelToolCall(id: "repeated", name: "read_document", arguments: "{}"),
+                ModelToolCall(id: "remaining", name: "edit_document", arguments: "{}"),
+            ]), AgentFixture(text: "Stopped tools"),
+        ])
+        var executed: [String] = []
+        var finished = false
+        transport.start(
+            id: UUID().uuidString, token: "document", snapshot: snapshot, intent: "question",
+            configuration: .init(
+                baseURL: "https://agent.example.test/v1", model: "fixture", apiProtocol: .chatCompletions),
+            key: "fixture-key",
+            toolsAvailable: { true },
+            executeTool: { call, _ in
+                executed.append(call.name)
+                return AgentToolExecution(output: "unchanged", revision: "same")
+            },
+            emit: { event in
+                if event.type == "failure" { XCTFail("Unexpected transport failure") }
+                if event.type == "complete" { finished = true }
+            })
+        try await wait { finished }
+        XCTAssertEqual(executed, ["read_document", "read_document"])
+        let last = try ModelWireFormat.object(XCTUnwrap(AgentFixtureProtocol.queue.requests().last))
+        XCTAssertEqual((last["tools"] as? [[String: Any]])?.count, 0)
+        let messages = try XCTUnwrap(last["messages"] as? [[String: Any]])
+        let outputs = messages.filter { $0["role"] as? String == "tool" }
+        XCTAssertEqual(outputs.count, 3, "Every declared call still needs a result in the following model request")
+        XCTAssertTrue((outputs.last?["content"] as? String)?.contains("repeated_without_progress") == true)
+    }
+
     func testToolLoopGuardUsesRepeatedResultsRatherThanFixedRoundCount() async throws {
         let doc = AgentAttachment(
             text: "正文", markdown: "正文", mode: "source", scope: "document", location: nil, start: nil, end: nil)

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Synchronization
 import UIKit
 
@@ -97,6 +98,9 @@ final class MarkdownDocument: UIDocument {
     }
 
     override func handleError(_ error: Error, userInteractionPermitted: Bool) {
+        let value = error as NSError
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "JustMarkdown", category: "Documents")
+            .error("Document IO failed: \(value.domain, privacy: .public) (\(value.code, privacy: .public))")
         super.handleError(error, userInteractionPermitted: userInteractionPermitted)
         // If contents(forType:) throws, UIKit deliberately omits save/autosave/
         // close completion callbacks. Resolve those waits from its error channel.

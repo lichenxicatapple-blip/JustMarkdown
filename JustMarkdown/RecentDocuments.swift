@@ -15,15 +15,29 @@ struct BookmarkedLocation: Codable, Equatable, Sendable {
         let resolved: URL
         if let bookmark {
             var stale = false
-            resolved = try URL(
-                resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutImplicitStartAccessing],
-                relativeTo: nil, bookmarkDataIsStale: &stale)
+            do {
+                resolved = try URL(
+                    resolvingBookmarkData: bookmark, options: [.withoutUI, .withoutImplicitStartAccessing],
+                    relativeTo: nil, bookmarkDataIsStale: &stale)
+            } catch {
+                // App-owned files already have access. A failed bookmark must not
+                // prevent reopening an existing file inside the application container.
+                guard Self.isAppOwned(url), FileManager.default.fileExists(atPath: url.path) else { throw error }
+                resolved = url
+            }
             // A successful open captures fresh bookmarks while access is active.
         } else {
             resolved = url
         }
         guard resolved.isFileURL else { throw CocoaError(.fileReadUnsupportedScheme) }
         return resolved
+    }
+
+    nonisolated static func isAppOwned(_ url: URL) -> Bool {
+        guard url.isFileURL else { return false }
+        let container = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).resolvingSymlinksInPath()
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return path == container.path || path.hasPrefix(container.path + "/")
     }
 }
 

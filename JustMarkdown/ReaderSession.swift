@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -127,7 +128,16 @@ final class ReaderSession: ObservableObject {
     }
 
     func openRecent(_ recent: RecentDocument) async throws -> Bool {
-        try await openDocument(replacing: recent.id) { try await self.recentDocuments.resolve(recent) }
+        do {
+            return try await openDocument(replacing: recent.id) { try await self.recentDocuments.resolve(recent) }
+        } catch {
+            let value = error as NSError
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "JustMarkdown", category: "Documents")
+                .error(
+                    "Reopening a recent document failed: \(value.domain, privacy: .public) (\(value.code, privacy: .public))"
+                )
+            throw error
+        }
     }
 
     private func openDocument(
@@ -155,7 +165,6 @@ final class ReaderSession: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: String(localized: "Only Markdown documents are supported.")])
         }
         if document?.fileURL.standardizedFileURL == url.standardizedFileURL { return true }
-        let container = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).resolvingSymlinksInPath()
         for folder in location.folders {
             if grantedRoots.contains(folder) {
                 restoredFolders.append(folder)
@@ -165,12 +174,11 @@ final class ReaderSession: ObservableObject {
             } else {
                 // App-owned folders need no scope. A revoked external folder
                 // must remain outside the image resolver's authorized roots.
-                let path = folder.resolvingSymlinksInPath().path
-                if path == container.path || path.hasPrefix(container.path + "/") { restoredFolders.append(folder) }
+                if BookmarkedLocation.isAppOwned(folder) { restoredFolders.append(folder) }
             }
         }
         if url.startAccessingSecurityScopedResource() { incomingScope = url }
-        await flushChanges()
+        guard await flushChanges() else { return false }
         let next = MarkdownDocument(fileURL: url)
         guard await next.openForReading() else { throw CocoaError(.fileReadUnknown) }
         let access = ResourceAccess(documentURL: url, roots: grantedRoots, token: documentToken)
@@ -219,17 +227,19 @@ final class ReaderSession: ObservableObject {
         autosaveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(600))
             guard !Task.isCancelled else { return }
-            await self?.saveCurrentDocument()
+            _ = await self?.saveCurrentDocument()
         }
     }
 
-    private func saveCurrentDocument() async {
-        guard !isClosingDocument, failedCloseToken == nil, let document, document.hasUnsavedChanges else { return }
+    private func saveCurrentDocument() async -> Bool {
+        guard !isClosingDocument, failedCloseToken == nil else { return false }
+        guard let document, document.hasUnsavedChanges else { return true }
         let saved = await document.persist()
         if !saved, self.document === document, !isClosingDocument, failedCloseToken == nil {
             errorMessage = String(
                 localized: "The document cannot be saved right now. Keep it open and check file access.")
         }
+        return saved
     }
 
     private func synchronizeSource() async throws {
@@ -241,14 +251,15 @@ final class ReaderSession: ObservableObject {
         }
     }
 
-    func flushChanges() async {
-        guard !isClosingDocument, failedCloseToken == nil else { return }
+    @discardableResult
+    func flushChanges() async -> Bool {
+        guard !isClosingDocument, failedCloseToken == nil else { return false }
         do { try await synchronizeSource() } catch {
             errorMessage = String(localized: "Your changes could not be read. Keep the document open and try again.")
-            return
+            return false
         }
         autosaveTask?.cancel()
-        await saveCurrentDocument()
+        return await saveCurrentDocument()
     }
 
     func cancelDocumentClose() {
@@ -335,7 +346,7 @@ final class ReaderSession: ObservableObject {
         do {
             let access = ResourceAccess(documentURL: document.fileURL, roots: grantedRoots, token: documentToken)
             let file = try access.resolve(href)
-            guard ["md", "markdown", "mdown", "mkd"].contains(file.pathExtension.lowercased()) else { return }
+            guard MarkdownDocument.supportedFilenameExtensions.contains(file.pathExtension.lowercased()) else { return }
             await open(file)
         } catch {
             errorMessage = String(localized: "Allow access to the containing folder to open this linked document.")

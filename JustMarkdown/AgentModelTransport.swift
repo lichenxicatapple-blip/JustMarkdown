@@ -82,6 +82,8 @@ struct AgentModelEvent: Encodable, Sendable {
 /// One model request at a time. The UI supplies immutable turn snapshots, never credentials.
 @MainActor
 final class AgentModelTransport {
+    private static let pausedToolOutput =
+        "{\"error\":\"repeated_without_progress\",\"message\":\"相同调用得到相同结果且文档没有变化。已停止继续调用工具，请如实说明结果。\"}"
     private let client: ModelClient
     private var task: Task<Void, Never>?
     private(set) var activeID: String?
@@ -146,7 +148,9 @@ final class AgentModelTransport {
                             try Task.checkCancellation()
                             let call = pending.turn.calls[pending.outputs.count]
                             let execution: AgentToolExecution
-                            if snapshot.document?.mode == "source" && toolsAvailable() {
+                            if currentRun.toolsPaused {
+                                execution = AgentToolExecution(output: Self.pausedToolOutput)
+                            } else if snapshot.document?.mode == "source" && toolsAvailable() {
                                 execution = await executeTool(call) { change in
                                     await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                                 }
@@ -168,9 +172,7 @@ final class AgentModelTransport {
                             pending.outputs.append(
                                 ModelToolOutput(
                                     id: call.id,
-                                    content: repeated
-                                        ? "{\"error\":\"repeated_without_progress\",\"message\":\"相同调用得到相同结果且文档没有变化。已停止继续调用工具，请如实说明结果。\"}"
-                                        : execution.output))
+                                    content: repeated ? Self.pausedToolOutput : execution.output))
                             if let change = execution.change {
                                 await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                             }

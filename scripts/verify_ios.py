@@ -25,6 +25,45 @@ def simulator_data(kind):
     )
 
 
+def failure_details(bundle, device, output):
+    summary = subprocess.run(
+        ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(bundle)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if summary.returncode == 0:
+        for failure in json.loads(summary.stdout).get("testFailures", []):
+            print(f"{failure['testName']}: {failure['failureText']}", flush=True)
+    # Collect the app's document error domains and codes without document contents or credentials.
+    diagnostics = output / f"{device}-documents.log"
+    try:
+        with diagnostics.open("w") as stream:
+            subprocess.run(
+                [
+                    "xcrun",
+                    "simctl",
+                    "spawn",
+                    device,
+                    "log",
+                    "show",
+                    "--style",
+                    "compact",
+                    "--last",
+                    "45m",
+                    "--predicate",
+                    'subsystem == "dev.catli.JustMarkdown" AND category == "Documents"',
+                ],
+                stdout=stream,
+                stderr=subprocess.STDOUT,
+                timeout=30,
+                check=False,
+            )
+        print(diagnostics.read_text(errors="replace"), flush=True)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f"Unable to collect document diagnostics: {type(error).__name__}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family", choices=["iPhone", "iPad"], help="Verify one simulator family")
@@ -123,6 +162,7 @@ def main():
         )
         print(f"{family}: {'passed' if process.returncode == 0 else 'failed'}", flush=True)
         if process.returncode != 0:
+            failure_details(bundle, identifier, output)
             print(
                 "\n".join(log.read_text(errors="replace").splitlines()[-80:]),
                 flush=True,

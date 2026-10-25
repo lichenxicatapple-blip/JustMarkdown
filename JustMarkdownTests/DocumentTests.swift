@@ -60,7 +60,8 @@ final class DocumentTests: XCTestCase {
             declarations.first { $0["UTTypeIdentifier"] as? String == "net.daringfireball.markdown" })
         let tags = try XCTUnwrap(markdown["UTTypeTagSpecification"] as? [String: Any])
         XCTAssertEqual(
-            Set(try XCTUnwrap(tags["public.filename-extension"] as? [String])), Set(["md", "markdown", "mdown", "mkd"]))
+            Set(try XCTUnwrap(tags["public.filename-extension"] as? [String])),
+            Set(MarkdownDocument.supportedFilenameExtensions))
         let session = ReaderSession(defaults: defaults)
         for (index, ext) in ["md", "MD", "markdown", "mArKdOwN", "mdown", "mkd"].enumerated() {
             let url = root.appendingPathComponent("document-\(index).\(ext)")
@@ -97,6 +98,42 @@ final class DocumentTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "# Saved before closing\n")
         await session.open(url)
         XCTAssertEqual(session.document?.text, "# Saved before closing\n")
+        await session.closeDocument()
+    }
+
+    @MainActor
+    func testFailedSavePreventsReplacingTheCurrentDocumentUntilUserRetries() async throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: root)
+        }
+        let first = root.appendingPathComponent("first.md")
+        let second = root.appendingPathComponent("second.md")
+        try Data("# First\n".utf8).write(to: first)
+        try Data("# Second\n".utf8).write(to: second)
+        let session = ReaderSession(defaults: defaults)
+        await session.open(first)
+        let original = try XCTUnwrap(session.document)
+        let token = session.documentToken
+        let history = session.recentDocuments.documents
+        session.sourceChanged("# Unsaved first\n", token: token)
+        original.failNextWritesForTesting(1)
+
+        await session.open(second)
+        XCTAssertTrue(session.document === original, "A replacement must not silently retry a failed save")
+        XCTAssertEqual(session.documentToken, token)
+        XCTAssertEqual(session.recentDocuments.documents, history)
+        XCTAssertNotNil(session.errorMessage)
+        XCTAssertEqual(original.text, "# Unsaved first\n")
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), "# First\n")
+
+        await session.open(second)
+        XCTAssertEqual(session.document?.fileURL, second)
+        XCTAssertEqual(try String(contentsOf: first, encoding: .utf8), "# Unsaved first\n")
         await session.closeDocument()
     }
 

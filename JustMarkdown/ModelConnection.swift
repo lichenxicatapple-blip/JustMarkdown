@@ -127,3 +127,16 @@ struct ChatMessage: Codable, Sendable {
     var role: String
     var content: String
 }
+
+/// Keep documents and credentials at the explicitly configured endpoint.
+/// A redirect is returned as its original HTTP response, never followed silently.
+final class ModelRequestPolicy: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = ModelRequestPolicy()
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}

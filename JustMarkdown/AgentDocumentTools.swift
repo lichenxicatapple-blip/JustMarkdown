@@ -180,8 +180,8 @@ final class AgentDocumentTools {
     }
 
     private func save(_ session: ReaderSession, token: String) async -> Bool {
-        await session.flushChanges()
-        return session.documentToken == token && session.document?.hasUnsavedChanges == false
+        let saved = await session.flushChanges()
+        return saved && session.documentToken == token && session.document?.hasUnsavedChanges == false
     }
 
     private struct Replacement {

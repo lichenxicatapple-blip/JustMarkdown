@@ -40,7 +40,7 @@ struct ModelCatalog: Sendable {
         request.httpMethod = "GET"
         request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: ModelRequestPolicy.shared)
         try Task.checkCancellation()
         guard let response = response as? HTTPURLResponse else { throw ModelCatalogError.invalidResponse }
         guard (200..<300).contains(response.statusCode) else {
