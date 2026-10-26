@@ -482,8 +482,9 @@
       streamReply(latestRequest);
     }
     function send() {
+      if (activeStream || pendingAuthorization) return;
       if (nativeInputs && !nativeInputs.committing) { nativeInputs.requestSubmit('question'); return; }
-      if (activeStream || !input.value.trim()) return;
+      if (!input.value.trim()) return;
       authorizeSend(() => {
         if (!input.value.trim()) return;
         const text = input.value.trim();

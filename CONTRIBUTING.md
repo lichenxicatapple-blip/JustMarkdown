@@ -53,15 +53,21 @@ python3 scripts/build_native_web.py --check
 python3 scripts/verify_ios.py
 ```
 
-脚本先生成资源并检查 JavaScript 语法、Swift 格式，再选择已安装的最新 iOS 26+ 运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建。
+脚本先生成资源并检查 JavaScript 语法、Swift 格式，使用 `build-for-testing` 编译一次，再选择已安装的最新 iOS 26+ 运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建；两端使用同一份测试产物执行 `test-without-building`。
 
-Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。启用 XCTest 单项超时；连续 10 分钟没有输出时中断测试并收集诊断。CI 测试步骤另设 40 分钟上限，预留时间上传失败产物。
+Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。启用 XCTest 单项超时；连续 10 分钟没有输出时中断测试并收集诊断。CI 每个测试分组另设 15 分钟上限，预留时间上传失败产物。
 
 | 参数 | 行为 |
 | --- | --- |
 | 不传参数 | 运行两端；产物写入 `output/native/` 下的本次运行目录 |
 | `--family iPhone` / `--family iPad` | 只验证指定设备类型 |
 | `--output /临时目录/本次运行` | 使用指定且尚不存在的产物目录 |
+| `--suite unit` / `--suite ui` | 分别运行单元／集成目标或 UI 目标；默认运行全部 |
+| `--shard-index 0 --shard-count 4` | 运行所选目标的一个分组，索引从零开始 |
+| `--test-products /临时目录/Products` | 使用同版本 Xcode 构建的可迁移测试产物，不重复构建或检查源码 |
+| `--ci-matrix` | 输出流水线所需的完整任务矩阵，不运行测试 |
+
+分组从 Xcode 对编译产物的测试发现结果生成，不维护人工用例清单。每组按稳定顺序分配，新增用例自动参与；禁用用例、发现错误、空分组、实际运行数量与分配数量不一致均导致失败。每次运行保存发现结果、分组计划和结果计数，便于核对完整性。
 
 这些测试只使用模拟网络或本机端口，不连接真实模型服务，不需要外部 API Key。测试凭据与正常 App 隔离，结束删除测试记录。未经维护者明确许可，不得跳过测试或通过排除必测用例绕过失败；环境或配置不足应报告为验证阻塞。脚本要求所有用例通过且跳过数为零。
 
@@ -70,9 +76,10 @@ Xcode 输出实时显示并保留完整日志，控制台可查看当前测试�
 ```sh
 ruff check scripts
 ruff format --check scripts
+python3 -m unittest discover -s scripts/tests
 ```
 
-[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。托管 runner 只使用模拟器，不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
+[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。主构建作业打包一次模拟器测试产物；每种设备的单元／集成测试独立运行，UI 测试分为四组，分别在独立 runner 上并行执行。完整矩阵由验证脚本统一生成，任意一组失败都会使流水线失败，其余分组继续执行。脚本的测试发现与分组规则由 `scripts/tests/` 下的标准库单元测试验证。托管 runner 不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
 
 Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重置副本；入口与样例不编入 Release。文件授权相关变更应经系统选择器打开外部文档复测，输入相关变更应核对对应的软件／实体键盘路径。
 

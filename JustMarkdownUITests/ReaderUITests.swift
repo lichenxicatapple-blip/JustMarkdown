@@ -1058,7 +1058,15 @@ final class ReaderUITests: XCTestCase {
         app.buttons["GlobalAI"].tap()
         let input = app.textViews["QuestionInput"]
         XCTAssertTrue(input.waitForExistence(timeout: 6))
-        input.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 8))
+        let ready = NSPredicate { _, _ in
+            let frame = input.frame
+            return input.isHittable && frame.height > 0 && frame.maxY <= keyboard.frame.minY + 1
+        }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: input)], timeout: 8), .completed)
+        XCTAssertEqual(input.value as? String, "")
         return input
     }
 
@@ -1124,6 +1132,7 @@ final class ReaderUITests: XCTestCase {
         let app = XCUIApplication()
         let input = openQuestionInput(app)
         input.typeText("Explain Markdown.")
+        XCTAssertEqual(input.value as? String, "Explain Markdown.")
         app.webViews.buttons["发送问题"].tap()
         allowDataSharingIfRequested(app)
         let retry = app.webViews.buttons["重试"]

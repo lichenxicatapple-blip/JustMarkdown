@@ -13,6 +13,84 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SIMULATORS = {
+    "iPhone": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+    "iPad": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
+}
+TEST_TARGETS = {"unit": "JustMarkdownTests", "ui": "JustMarkdownUITests"}
+UI_SHARDS = 4
+
+
+def ci_matrix():
+    """Keep the complete set of required simulator jobs in one place."""
+    return {
+        "include": [
+            {
+                "family": family,
+                "suite": suite,
+                "shardIndex": index,
+                "shardCount": count,
+                "label": f"{family} / {suite} {index + 1} of {count}",
+            }
+            for family in SIMULATORS
+            for suite, count in [("unit", 1), ("ui", UI_SHARDS)]
+            for index in range(count)
+        ]
+    }
+
+
+def test_identifiers(enumeration):
+    """Read compiled XCTest discovery; disabled or unknown tests are errors."""
+    if enumeration.get("errors") != []:
+        raise ValueError("Xcode test discovery reported errors")
+    groups = enumeration.get("values")
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("Xcode test discovery returned no test plans")
+    identifiers = []
+    for group in groups:
+        if group.get("disabledTests") != []:
+            raise ValueError("Disabled tests are not permitted")
+        enabled = group.get("enabledTests")
+        if not isinstance(enabled, list):
+            raise ValueError("Xcode test discovery returned invalid tests")
+        for item in enabled:
+            identifier = item.get("identifier")
+            if not isinstance(identifier, str):
+                raise ValueError("Xcode test discovery returned an invalid identifier")
+            parts = identifier.split("/")
+            # XCTest also lists empty base suites, which contain no test methods.
+            if len(parts) == 2 and all(parts):
+                continue
+            if len(parts) != 3 or not all(parts) or not parts[-1].endswith("()"):
+                raise ValueError(f"Unsupported test identifier: {identifier}")
+            identifiers.append(identifier.removesuffix("()"))
+    if not identifiers or len(identifiers) != len(set(identifiers)):
+        raise ValueError("Xcode test discovery returned empty or duplicate tests")
+    if {item.split("/")[0] for item in identifiers} != set(TEST_TARGETS.values()):
+        raise ValueError("The offline test plan must contain both unit and UI targets")
+    return sorted(identifiers)
+
+
+def select_tests(identifiers, suite, index, count):
+    """Partition a complete discovered suite with no overlap or omissions."""
+    if count < 1 or not 0 <= index < count:
+        raise ValueError("Invalid shard index or count")
+    if suite != "all" and suite not in TEST_TARGETS:
+        raise ValueError("Unknown test suite")
+    tests = sorted(
+        item for item in identifiers if suite == "all" or item.split("/")[0] == TEST_TARGETS[suite]
+    )
+    selected = tests[index::count]
+    if not selected:
+        raise ValueError("The selected test shard is empty")
+    return selected
+
+
+def test_run_specification(products):
+    specifications = list(products.glob("*.xctestrun"))
+    if len(specifications) != 1:
+        raise ValueError("Test products must contain exactly one .xctestrun specification")
+    return specifications[0]
 
 
 def run(arguments, **options):
@@ -158,32 +236,43 @@ def test_summary(bundle):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--family", choices=["iPhone", "iPad"], help="Verify one simulator family")
+    parser.add_argument("--family", choices=SIMULATORS, help="Verify one simulator family")
     parser.add_argument(
         "--output", type=Path, help="Directory for disposable build and test artifacts"
     )
+    parser.add_argument("--test-products", type=Path, help="Use prebuilt simulator test products")
+    parser.add_argument("--suite", choices=["all", *TEST_TARGETS], default="all")
+    parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard index")
+    parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument("--ci-matrix", action="store_true", help="Print the required CI job matrix")
     args = parser.parse_args()
+    if args.ci_matrix:
+        print("matrix=" + json.dumps(ci_matrix(), separators=(",", ":")))
+        return 0
+    if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
+        parser.error("shard-index must be in [0, shard-count)")
     if not (ROOT / "JustMarkdown.xcodeproj/project.pbxproj").is_file():
         raise SystemExit("Missing JustMarkdown.xcodeproj. Use a complete project checkout.")
-    run([sys.executable, "scripts/build_native_web.py"])
-    for script in ["reader.js", "agent.js", "localization.js"]:
-        run(["node", "--check", f"JustMarkdown/Resources/Web/{script}"])
-    run(
-        [
-            "xcrun",
-            "swift-format",
-            "lint",
-            "--strict",
-            "--recursive",
-            "--configuration",
-            ".swift-format",
-            "JustMarkdown",
-            "JustMarkdownTests",
-            "JustMarkdownUITests",
-            "JustMarkdownLiveTests",
-            "scripts",
-        ]
-    )
+    if args.test_products is None:
+        run([sys.executable, "scripts/build_native_web.py"])
+        for script in ["reader.js", "agent.js", "localization.js"]:
+            run(["node", "--check", f"JustMarkdown/Resources/Web/{script}"])
+        run(
+            [
+                "xcrun",
+                "swift-format",
+                "lint",
+                "--strict",
+                "--recursive",
+                "--configuration",
+                ".swift-format",
+                "JustMarkdown",
+                "JustMarkdownTests",
+                "JustMarkdownUITests",
+                "JustMarkdownLiveTests",
+                "scripts",
+            ]
+        )
     runtimes = [
         item
         for item in simulator_data("runtimes")["runtimes"]
@@ -202,11 +291,32 @@ def main():
         or ROOT / "output/native" / datetime.now().strftime("validation-%Y%m%d-%H%M%S-%f")
     ).resolve()
     output.mkdir(parents=True, exist_ok=False)
+    products = (
+        args.test_products.resolve()
+        if args.test_products
+        else output / "DerivedData/Build/Products"
+    )
+    if args.test_products is None:
+        code = run_tests(
+            [
+                "xcodebuild",
+                "-project",
+                "JustMarkdown.xcodeproj",
+                "-scheme",
+                "JustMarkdown",
+                "-destination",
+                "generic/platform=iOS Simulator",
+                "-derivedDataPath",
+                str(output / "DerivedData"),
+                "build-for-testing",
+            ],
+            output / "build.log",
+        )
+        if code:
+            return code
+    specification = test_run_specification(products)
     results = []
-    for family, device_type in [
-        ("iPhone", "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro"),
-        ("iPad", "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB"),
-    ]:
+    for family, device_type in SIMULATORS.items():
         if args.family and args.family != family:
             continue
         name = f"JustMarkdown {family}"
@@ -224,31 +334,63 @@ def main():
         run(["xcrun", "simctl", "bootstatus", identifier, "-b"])
         bundle = output / f"{family}.xcresult"
         log = output / f"{family}.log"
+        destination = f"platform=iOS Simulator,id={identifier}"
+        discovery = output / f"{family}-discovery.json"
+        run(
+            [
+                "xcodebuild",
+                "test-without-building",
+                "-xctestrun",
+                str(specification),
+                "-destination",
+                destination,
+                "-enumerate-tests",
+                "-test-enumeration-style",
+                "flat",
+                "-test-enumeration-format",
+                "json",
+                "-test-enumeration-output-path",
+                str(discovery),
+            ],
+            stdout=subprocess.PIPE,
+        )
+        identifiers = test_identifiers(json.loads(discovery.read_text()))
+        selected = select_tests(identifiers, args.suite, args.shard_index, args.shard_count)
+        plan = {
+            "family": family,
+            "suite": args.suite,
+            "shardIndex": args.shard_index,
+            "shardCount": args.shard_count,
+            "allTests": identifiers,
+            "selectedTests": selected,
+        }
+        (output / f"{family}-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+        print(
+            f"Running {len(selected)} discovered tests: {args.suite} "
+            f"shard {args.shard_index + 1}/{args.shard_count}",
+            flush=True,
+        )
         print(f"Testing {family} on {runtime['name']}. Results: {bundle}", flush=True)
         arguments = [
             "xcodebuild",
-            "-project",
-            "JustMarkdown.xcodeproj",
-            "-scheme",
-            "JustMarkdown",
+            "test-without-building",
+            "-xctestrun",
+            str(specification),
             "-destination",
-            f"platform=iOS Simulator,id={identifier}",
-            "-derivedDataPath",
-            str(output / "DerivedData"),
+            destination,
             "-resultBundlePath",
             str(bundle),
             "-parallel-testing-enabled",
             "NO",
             "-test-timeouts-enabled",
             "YES",
-            "test",
-        ]
+        ] + [f"-only-testing:{test}" for test in selected]
         code = run_tests(arguments, log)
         counts = test_summary(bundle)
         passed = (
             code == 0
             and counts is not None
-            and counts["totalTestCount"] > 0
+            and counts["totalTestCount"] == len(selected)
             and counts["passedTests"] == counts["totalTestCount"]
             and counts["failedTests"] == 0
             and counts["skippedTests"] == 0
@@ -260,6 +402,10 @@ def main():
                 "runtime": runtime["name"],
                 "passed": passed,
                 "testCounts": counts,
+                "suite": args.suite,
+                "shardIndex": args.shard_index,
+                "shardCount": args.shard_count,
+                "selectedTests": selected,
                 "resultBundle": str(bundle),
                 "log": str(log),
             }

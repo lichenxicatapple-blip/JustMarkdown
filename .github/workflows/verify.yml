@@ -19,6 +19,8 @@ jobs:
   checks:
     runs-on: macos-26
     timeout-minutes: 15
+    outputs:
+      test_matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -57,11 +59,27 @@ jobs:
           "$RUNNER_TEMP/python-tools/bin/pip" install ruff==0.14.14
           "$RUNNER_TEMP/python-tools/bin/ruff" check scripts
           "$RUNNER_TEMP/python-tools/bin/ruff" format --check scripts
+          python3 -m unittest discover -s scripts/tests
       - name: Compile iPhoneOS Release
         run: >-
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
           -configuration Release -destination 'generic/platform=iOS'
           -derivedDataPath "$RUNNER_TEMP/Release" CODE_SIGNING_ALLOWED=NO build
+      - name: Build simulator tests once
+        run: >-
+          xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/NativeTestBuild" build-for-testing
+      - name: Package simulator test products
+        run: tar -czf "$RUNNER_TEMP/native-test-products.tar.gz" -C "$RUNNER_TEMP/NativeTestBuild/Build" Products
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-test-products
+          path: ${{ runner.temp }}/native-test-products.tar.gz
+          retention-days: 1
+      - name: Plan required simulator jobs
+        id: plan
+        run: python3 scripts/verify_ios.py --ci-matrix >> "$GITHUB_OUTPUT"
       - name: Compile live-model tests without making requests
         run: >-
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdownLive
@@ -69,29 +87,42 @@ jobs:
           -derivedDataPath "$RUNNER_TEMP/LiveTestBuild" CODE_SIGNING_ALLOWED=NO build-for-testing
 
   simulators:
+    name: ${{ matrix.label }}
     needs: checks
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 20
     strategy:
       fail-fast: false
-      matrix:
-        family: [iPhone, iPad]
+      matrix: ${{ fromJSON(needs.checks.outputs.test_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-test-products
+          path: ${{ runner.temp }}/native-test-products
+      - name: Unpack simulator test products
+        run: tar -xzf "$RUNNER_TEMP/native-test-products/native-test-products.tar.gz" -C "$RUNNER_TEMP/native-test-products"
       - name: Run offline simulator tests
-        timeout-minutes: 40
+        timeout-minutes: 15
         env:
           FAMILY: ${{ matrix.family }}
-        run: python3 scripts/verify_ios.py --family "$FAMILY" --output "$RUNNER_TEMP/native-tests"
+          SUITE: ${{ matrix.suite }}
+          SHARD_INDEX: ${{ matrix.shardIndex }}
+          SHARD_COUNT: ${{ matrix.shardCount }}
+        run: >-
+          python3 scripts/verify_ios.py --family "$FAMILY" --suite "$SUITE"
+          --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT"
+          --test-products "$RUNNER_TEMP/native-test-products/Products"
+          --output "$RUNNER_TEMP/native-tests"
       - name: Retain failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-failure-${{ matrix.family }}
+          name: native-failure-${{ matrix.family }}-${{ matrix.suite }}-${{ matrix.shardIndex }}
           path: |
             ${{ runner.temp }}/native-tests/*.log
             ${{ runner.temp }}/native-tests/*.xcresult
-            ${{ runner.temp }}/native-tests/results.json
+            ${{ runner.temp }}/native-tests/*.json
           retention-days: 7
