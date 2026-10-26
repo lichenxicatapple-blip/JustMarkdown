@@ -535,6 +535,8 @@ final class WebReaderTests: XCTestCase {
             const headings = links.map(link => document.getElementById(link.dataset.tocTarget));
             const frame = () => new Promise(requestAnimationFrame);
             const settle = async (ready = () => true) => {
+              // Begin timing after WebKit has had a rendering opportunity.
+              await frame();
               const started = performance.now();
               let previous = body.scrollTop, stable = 0;
               while (performance.now() - started < 1800) {

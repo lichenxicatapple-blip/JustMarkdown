@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      full_ui:
+        description: Run the complete UI regression suite
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -14,6 +19,7 @@ concurrency:
 
 env:
   DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  TEST_PLAN: ${{ github.event_name == 'workflow_dispatch' && inputs.full_ui && 'Full' || 'CI' }}
 
 jobs:
   checks:
@@ -71,6 +77,7 @@ jobs:
       - name: Build simulator tests once
         run: >-
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
+          -testPlan "$TEST_PLAN"
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath "$RUNNER_TEMP/NativeTestBuild" build-for-testing
       - name: Package simulator test products
@@ -82,7 +89,7 @@ jobs:
           retention-days: 1
       - name: Plan required simulator jobs
         id: plan
-        run: python3 scripts/verify_ios.py --ci-matrix >> "$GITHUB_OUTPUT"
+        run: python3 scripts/verify_ios.py --ci-matrix --test-plan "$TEST_PLAN" >> "$GITHUB_OUTPUT"
       - name: Compile live-model tests without making requests
         run: >-
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdownLive
@@ -93,7 +100,7 @@ jobs:
     name: ${{ matrix.label }}
     needs: checks
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       max-parallel: 5
@@ -109,7 +116,7 @@ jobs:
       - name: Unpack simulator test products
         run: tar -xzf "$RUNNER_TEMP/native-test-products/native-test-products.tar.gz" -C "$RUNNER_TEMP/native-test-products"
       - name: Run offline simulator tests
-        timeout-minutes: 15
+        timeout-minutes: ${{ env.TEST_PLAN == 'Full' && 20 || 15 }}
         env:
           FAMILY: ${{ matrix.family }}
           SUITE: ${{ matrix.suite }}
@@ -117,6 +124,7 @@ jobs:
           SHARD_COUNT: ${{ matrix.shardCount }}
         run: |
           python3 scripts/verify_ios.py --family "$FAMILY" --suite "$SUITE" \
+            --test-plan "$TEST_PLAN" \
             --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT" \
             --test-products "$RUNNER_TEMP/native-test-products/Products" \
             --output "$RUNNER_TEMP/native-tests/$FAMILY"

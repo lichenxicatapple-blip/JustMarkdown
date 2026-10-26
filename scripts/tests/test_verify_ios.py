@@ -1,4 +1,5 @@
 import collections
+import plistlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -36,7 +37,7 @@ class TestDiscoveryAndSharding(unittest.TestCase):
 
     def test_ci_matrix_executes_every_method_exactly_once_on_each_family(self):
         identifiers = verify_ios.test_identifiers(self.enumeration())
-        jobs = verify_ios.ci_matrix()["include"]
+        jobs = verify_ios.ci_matrix("Full")["include"]
         self.assertEqual({job["family"] for job in jobs}, {"iPhone", "iPad"})
         for family in ["iPhone", "iPad"]:
             executed = [
@@ -60,6 +61,79 @@ class TestDiscoveryAndSharding(unittest.TestCase):
             for test in verify_ios.select_tests(identifiers, "ui", index, verify_ios.UI_SHARDS)
         ]
         self.assertEqual(selected.count(new_test), 1)
+
+    def test_ci_and_full_plans_keep_unit_targets_complete_and_distinguish_ui_scope(self):
+        self.assertIsNone(verify_ios.required_ui_tests("Full"))
+        core = verify_ios.required_ui_tests("CI")
+        self.assertGreater(len(core), 0)
+        self.assertTrue(all(item.startswith("JustMarkdownUITests/") for item in core))
+        jobs = verify_ios.ci_matrix("CI")["include"]
+        self.assertEqual(
+            collections.Counter((job["family"], job["suite"]) for job in jobs),
+            collections.Counter(
+                (family, suite) for family in ["iPhone", "iPad"] for suite in ["unit", "ui"]
+            ),
+        )
+        self.assertTrue(all(job["shardIndex"] == 0 and job["shardCount"] == 1 for job in jobs))
+
+    def test_core_discovery_only_allows_ui_cases_outside_approved_scope_to_be_disabled(self):
+        enumeration = self.enumeration()
+        group = enumeration["values"][0]
+        omitted = group["enabledTests"][-3:]
+        group["enabledTests"] = group["enabledTests"][:-3]
+        group["disabledTests"] = omitted
+        core = {
+            item["identifier"].removesuffix("()")
+            for item in group["enabledTests"]
+            if item["identifier"].startswith("JustMarkdownUITests/")
+        }
+        self.assertEqual(len(verify_ios.test_identifiers(enumeration, core)), 13)
+        with self.assertRaises(ValueError):
+            verify_ios.test_identifiers(enumeration)
+        for disabled in [group["enabledTests"][1], group["enabledTests"][-1]]:
+            group["disabledTests"] = [disabled]
+            with self.assertRaises(ValueError):
+                verify_ios.test_identifiers(enumeration, core)
+        group["disabledTests"] = omitted
+        with self.assertRaises(ValueError):
+            verify_ios.test_identifiers(
+                enumeration, core | {omitted[0]["identifier"].removesuffix("()")}
+            )
+
+    def test_prebuilt_plan_rejects_profile_mismatch_or_hidden_test_filters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            products = Path(directory)
+            specification = products / "JustMarkdown_CI_iphonesimulator.xctestrun"
+            unit = {"BlueprintName": "JustMarkdownTests"}
+            ui = {
+                "BlueprintName": "JustMarkdownUITests",
+                "OnlyTestIdentifiers": [
+                    item.split("/", 1)[1] + "()" for item in verify_ios.required_ui_tests("CI")
+                ],
+            }
+            metadata = {
+                "TestPlan": {"Name": "CI"},
+                "TestConfigurations": [{"IsEnabled": True, "TestTargets": [unit, ui]}],
+            }
+            specification.write_bytes(plistlib.dumps(metadata))
+            self.assertEqual(verify_ios.test_run_specification(products, "CI"), specification)
+            with self.assertRaises(ValueError):
+                verify_ios.test_run_specification(products, "Full")
+            for item, key, value in [
+                (unit, "OnlyTestIdentifiers", ["Unit/testOne()"]),
+                (unit, "SkipTestIdentifiers", ["Unit/testOne()"]),
+                (ui, "OnlyTestIdentifiers", ["Reader/testOther()"]),
+                (metadata["TestPlan"], "Name", "Full"),
+            ]:
+                previous = item.get(key)
+                item[key] = value
+                specification.write_bytes(plistlib.dumps(metadata))
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    verify_ios.test_run_specification(products, "CI")
+                if previous is None:
+                    del item[key]
+                else:
+                    item[key] = previous
 
     def test_partition_is_independent_of_discovery_order(self):
         identifiers = verify_ios.test_identifiers(self.enumeration())

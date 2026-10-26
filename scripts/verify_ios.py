@@ -5,6 +5,7 @@ import argparse
 import codecs
 import json
 import os
+import plistlib
 import selectors
 import signal
 import subprocess
@@ -20,9 +21,10 @@ SIMULATORS = {
 }
 TEST_TARGETS = {"unit": "JustMarkdownTests", "ui": "JustMarkdownUITests"}
 UI_SHARDS = 4
+TEST_PLANS = ROOT / "JustMarkdown.xcodeproj/xcshareddata/xctestplans"
 
 
-def ci_matrix():
+def ci_matrix(test_plan="CI"):
     """Keep the complete set of required simulator jobs in one place."""
     return {
         "include": [
@@ -33,14 +35,39 @@ def ci_matrix():
                 "shardCount": count,
                 "label": f"{family} {suite} {index + 1} of {count}",
             }
-            for suite, count in [("unit", 1), ("ui", UI_SHARDS)]
+            for suite, count in [("unit", 1), ("ui", UI_SHARDS if test_plan == "Full" else 1)]
             for index in range(count)
             for family in SIMULATORS
         ]
     }
 
 
-def test_identifiers(enumeration):
+def required_ui_tests(test_plan):
+    """The checked-in Xcode plan owns UI scope; unit targets always run in full."""
+    plan = json.loads((TEST_PLANS / f"{test_plan}.xctestplan").read_text())
+    targets = {item["target"]["name"]: item for item in plan["testTargets"]}
+    if set(targets) != set(TEST_TARGETS.values()):
+        raise ValueError("The offline test plan must contain both unit and UI targets")
+    if any(item.get("enabled") is False or item.get("skippedTests") for item in targets.values()):
+        raise ValueError("Disabled tests are not permitted in either test plan")
+    if "selectedTests" in targets[TEST_TARGETS["unit"]]:
+        raise ValueError("Unit and integration tests must always run in full")
+    selected = targets[TEST_TARGETS["ui"]].get("selectedTests")
+    if test_plan == "Full":
+        if selected is not None:
+            raise ValueError("The Full test plan must run every UI test")
+        return None
+    if not isinstance(selected, list) or not selected or len(set(selected)) != len(selected):
+        raise ValueError("The CI plan must explicitly select its required UI tests")
+    if any(
+        not isinstance(item, str) or len(item.split("/")) != 2 or not item.endswith("()")
+        for item in selected
+    ):
+        raise ValueError("Invalid UI test selection")
+    return {f"{TEST_TARGETS['ui']}/{item.removesuffix('()')}" for item in selected}
+
+
+def test_identifiers(enumeration, selected_ui=None):
     """Read compiled XCTest discovery; disabled or unknown tests are errors."""
     if enumeration.get("errors") != []:
         raise ValueError("Xcode test discovery reported errors")
@@ -49,8 +76,17 @@ def test_identifiers(enumeration):
         raise ValueError("Xcode test discovery returned no test plans")
     identifiers = []
     for group in groups:
-        if group.get("disabledTests") != []:
-            raise ValueError("Disabled tests are not permitted")
+        disabled = group.get("disabledTests")
+        if not isinstance(disabled, list):
+            raise ValueError("Xcode test discovery returned invalid disabled tests")
+        for item in disabled:
+            identifier = item.get("identifier", "").removesuffix("()")
+            if (
+                selected_ui is None
+                or not identifier.startswith(TEST_TARGETS["ui"] + "/")
+                or identifier in selected_ui
+            ):
+                raise ValueError("A required test is disabled")
         enabled = group.get("enabledTests")
         if not isinstance(enabled, list):
             raise ValueError("Xcode test discovery returned invalid tests")
@@ -69,6 +105,12 @@ def test_identifiers(enumeration):
         raise ValueError("Xcode test discovery returned empty or duplicate tests")
     if {item.split("/")[0] for item in identifiers} != set(TEST_TARGETS.values()):
         raise ValueError("The offline test plan must contain both unit and UI targets")
+    if (
+        selected_ui is not None
+        and {item for item in identifiers if item.startswith(TEST_TARGETS["ui"] + "/")}
+        != selected_ui
+    ):
+        raise ValueError("Compiled UI discovery does not match the selected test plan")
     return sorted(identifiers)
 
 
@@ -87,11 +129,46 @@ def select_tests(identifiers, suite, index, count):
     return selected
 
 
-def test_run_specification(products):
+def test_run_specification(products, test_plan=None):
     specifications = list(products.glob("*.xctestrun"))
     if len(specifications) != 1:
         raise ValueError("Test products must contain exactly one .xctestrun specification")
-    return specifications[0]
+    specification = specifications[0]
+    if test_plan is not None:
+        if not specification.name.startswith(f"JustMarkdown_{test_plan}_"):
+            raise ValueError(f"Test products must be built with the {test_plan} test plan")
+        metadata = plistlib.loads(specification.read_bytes())
+        if metadata.get("TestPlan", {}).get("Name") != test_plan:
+            raise ValueError("Compiled test plan does not match the requested plan")
+        configurations = metadata.get("TestConfigurations")
+        if not configurations or any(not item.get("IsEnabled") for item in configurations):
+            raise ValueError("Compiled test configurations must all be enabled")
+        selected_ui = required_ui_tests(test_plan)
+        for configuration in configurations:
+            if {target["BlueprintName"] for target in configuration["TestTargets"]} != set(
+                TEST_TARGETS.values()
+            ):
+                raise ValueError("Compiled test products must contain both offline targets")
+            for target in configuration["TestTargets"]:
+                if target.get("SkipTestIdentifiers"):
+                    raise ValueError("Unexpected disabled tests in compiled test products")
+                if (
+                    target["BlueprintName"] == TEST_TARGETS["unit"]
+                    and "OnlyTestIdentifiers" in target
+                ):
+                    raise ValueError("Compiled unit and integration tests must run in full")
+                if target["BlueprintName"] == TEST_TARGETS["ui"]:
+                    actual = target.get("OnlyTestIdentifiers")
+                    if selected_ui is None:
+                        if actual is not None:
+                            raise ValueError("Compiled Full plan must contain every UI test")
+                    elif (
+                        actual is None
+                        or {f"{TEST_TARGETS['ui']}/{item.removesuffix('()')}" for item in actual}
+                        != selected_ui
+                    ):
+                        raise ValueError("Compiled UI tests do not match the approved CI plan")
+    return specification
 
 
 def run(arguments, **options):
@@ -243,13 +320,15 @@ def main():
     )
     parser.add_argument("--test-products", type=Path, help="Use prebuilt simulator test products")
     parser.add_argument("--suite", choices=["all", *TEST_TARGETS], default="all")
+    parser.add_argument("--test-plan", choices=["Full", "CI"], default="Full")
     parser.add_argument("--shard-index", type=int, default=0, help="Zero-based shard index")
     parser.add_argument("--shard-count", type=int, default=1)
     parser.add_argument("--ci-matrix", action="store_true", help="Print the required CI job matrix")
     args = parser.parse_args()
     if args.ci_matrix:
-        print("matrix=" + json.dumps(ci_matrix(), separators=(",", ":")))
+        print("matrix=" + json.dumps(ci_matrix(args.test_plan), separators=(",", ":")))
         return 0
+    selected_ui = required_ui_tests(args.test_plan)
     if args.shard_count < 1 or not 0 <= args.shard_index < args.shard_count:
         parser.error("shard-index must be in [0, shard-count)")
     if not (ROOT / "JustMarkdown.xcodeproj/project.pbxproj").is_file():
@@ -305,6 +384,8 @@ def main():
                 "JustMarkdown.xcodeproj",
                 "-scheme",
                 "JustMarkdown",
+                "-testPlan",
+                args.test_plan,
                 "-destination",
                 "generic/platform=iOS Simulator",
                 "-derivedDataPath",
@@ -315,7 +396,7 @@ def main():
         )
         if code:
             return code
-    specification = test_run_specification(products)
+    specification = test_run_specification(products, args.test_plan)
     results = []
     for family, device_type in SIMULATORS.items():
         if args.family and args.family != family:
@@ -339,42 +420,56 @@ def main():
         bundle = output / f"{family}.xcresult"
         log = output / f"{family}.log"
         destination = f"platform=iOS Simulator,id={identifier}"
-        discovery = output / f"{family}-discovery.json"
-        started = time.monotonic()
-        print(f"{family}: discovering compiled tests", flush=True)
-        run(
-            [
-                "xcodebuild",
-                "test-without-building",
-                "-xctestrun",
-                str(specification),
-                "-destination",
-                destination,
-                "-enumerate-tests",
-                "-test-enumeration-style",
-                "flat",
-                "-test-enumeration-format",
-                "json",
-                "-test-enumeration-output-path",
-                str(discovery),
-            ],
-            stdout=subprocess.PIPE,
+        identifiers = None
+        expected_count = (
+            len(selected_ui) if args.suite == "ui" and selected_ui is not None else None
         )
-        identifiers = test_identifiers(json.loads(discovery.read_text()))
-        print(f"{family}: test discovery took {time.monotonic() - started:.1f}s", flush=True)
-        selected = select_tests(identifiers, args.suite, args.shard_index, args.shard_count)
+        if args.shard_count > 1:
+            discovery = output / f"{family}-discovery.json"
+            started = time.monotonic()
+            print(f"{family}: discovering compiled tests for sharding", flush=True)
+            run(
+                [
+                    "xcodebuild",
+                    "test-without-building",
+                    "-xctestrun",
+                    str(specification),
+                    "-destination",
+                    destination,
+                    "-parallel-testing-enabled",
+                    "NO",
+                    "-enumerate-tests",
+                    "-test-enumeration-style",
+                    "flat",
+                    "-test-enumeration-format",
+                    "json",
+                    "-test-enumeration-output-path",
+                    str(discovery),
+                ],
+                stdout=subprocess.PIPE,
+            )
+            identifiers = test_identifiers(json.loads(discovery.read_text()), selected_ui)
+            print(f"{family}: test discovery took {time.monotonic() - started:.1f}s", flush=True)
+            selected = select_tests(identifiers, args.suite, args.shard_index, args.shard_count)
+            expected_count = len(selected)
+        else:
+            selected = (
+                list(TEST_TARGETS.values()) if args.suite == "all" else [TEST_TARGETS[args.suite]]
+            )
         plan = {
             "family": family,
             "suite": args.suite,
+            "testPlan": args.test_plan,
             "shardIndex": args.shard_index,
             "shardCount": args.shard_count,
             "allTests": identifiers,
-            "selectedTests": selected,
+            "testSelectors": selected,
+            "expectedCount": expected_count,
         }
         (output / f"{family}-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
         print(
-            f"Running {len(selected)} discovered tests: {args.suite} "
-            f"shard {args.shard_index + 1}/{args.shard_count}",
+            f"Running {args.test_plan} plan, {args.suite} "
+            f"shard {args.shard_index + 1}/{args.shard_count}: {', '.join(selected)}",
             flush=True,
         )
         print(f"Testing {family} on {runtime['name']}. Results: {bundle}", flush=True)
@@ -397,7 +492,8 @@ def main():
         passed = (
             code == 0
             and counts is not None
-            and counts["totalTestCount"] == len(selected)
+            and counts["totalTestCount"] > 0
+            and (expected_count is None or counts["totalTestCount"] == expected_count)
             and counts["passedTests"] == counts["totalTestCount"]
             and counts["failedTests"] == 0
             and counts["skippedTests"] == 0
@@ -410,9 +506,10 @@ def main():
                 "passed": passed,
                 "testCounts": counts,
                 "suite": args.suite,
+                "testPlan": args.test_plan,
                 "shardIndex": args.shard_index,
                 "shardCount": args.shard_count,
-                "selectedTests": selected,
+                "testSelectors": selected,
                 "resultBundle": str(bundle),
                 "log": str(log),
             }
