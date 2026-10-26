@@ -475,6 +475,7 @@ final class ReaderSession: ObservableObject {
                 let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             else { return }
             let fixture = documents.appendingPathComponent("JustMarkdown-TestDocument", isDirectory: true)
+            let failingSaves = ProcessInfo.processInfo.arguments.contains("--ui-test-save-failure")
             do {
                 if reset && FileManager.default.fileExists(atPath: fixture.path) {
                     try FileManager.default.removeItem(at: fixture)
@@ -483,8 +484,9 @@ final class ReaderSession: ObservableObject {
                     try FileManager.default.copyItem(at: source, to: fixture)
                 }
                 await grant(fixture)
-                await open(fixture.appendingPathComponent("reading-guide.md"))
-                if ProcessInfo.processInfo.arguments.contains("--ui-test-save-failure") {
+                let filename = failingSaves ? "save-recovery.md" : "reading-guide.md"
+                await open(fixture.appendingPathComponent(filename))
+                if failingSaves {
                     document?.failNextWritesForTesting(.max)
                 } else if ProcessInfo.processInfo.arguments.contains("--ui-test-save-failure-once") {
                     document?.failNextWritesForTesting(1)

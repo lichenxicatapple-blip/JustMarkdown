@@ -748,7 +748,7 @@ final class ReaderUITests: XCTestCase {
             "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
         ]
         app.launch()
-        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.webViews.staticTexts["Save recovery"].waitForExistence(timeout: 25))
         showTools(app)
         app.buttons["ModeToggle"].tap()
         let editor = app.textViews["SourceEditor"]
