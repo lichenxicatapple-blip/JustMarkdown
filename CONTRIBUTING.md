@@ -79,7 +79,7 @@ ruff format --check scripts
 python3 -m unittest discover -s scripts/tests
 ```
 
-[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。主构建作业打包一次模拟器测试产物；每种设备的单元／集成测试独立运行，UI 测试分为四组，分别在独立 runner 上并行执行。完整矩阵由验证脚本统一生成，任意一组失败都会使流水线失败，其余分组继续执行。脚本的测试发现与分组规则由 `scripts/tests/` 下的标准库单元测试验证。托管 runner 不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
+[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。主构建作业打包一次模拟器测试产物；单元／集成测试独立运行，UI 测试分为四组，共使用五个 runner。每个 runner 同时运行 iPhone 和 iPad 两个模拟器，两端的日志与结果分别保存。完整矩阵由验证脚本统一生成，任意一组或任意设备失败都会使流水线失败，其余分组继续执行；更新提交自动取消同一分支的旧流水线。脚本的测试发现与分组规则由 `scripts/tests/` 下的标准库单元测试验证。托管 runner 不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
 
 Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重置副本；入口与样例不编入 Release。文件授权相关变更应经系统选择器打开外部文档复测，输入相关变更应核对对应的软件／实体键盘路径。
 

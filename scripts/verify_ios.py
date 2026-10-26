@@ -26,13 +26,12 @@ def ci_matrix():
     return {
         "include": [
             {
-                "family": family,
+                "families": list(SIMULATORS),
                 "suite": suite,
                 "shardIndex": index,
                 "shardCount": count,
-                "label": f"{family} / {suite} {index + 1} of {count}",
+                "label": f"{suite} {index + 1} of {count}",
             }
-            for family in SIMULATORS
             for suite, count in [("unit", 1), ("ui", UI_SHARDS)]
             for index in range(count)
         ]
