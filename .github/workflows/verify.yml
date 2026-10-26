@@ -50,6 +50,9 @@ jobs:
       - name: Check offline resources and project files
         run: |
           python3 scripts/build_native_web.py --check --audit-dependencies
+          for script in reader agent localization; do
+            node --check "JustMarkdown/Resources/Web/$script.js"
+          done
           python3 -m compileall -q scripts
           plutil -lint JustMarkdown/Info.plist JustMarkdown/PrivacyInfo.xcprivacy JustMarkdown.xcodeproj/project.pbxproj
           xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests JustMarkdownLiveTests scripts
