@@ -96,6 +96,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
+      max-parallel: 5
       matrix: ${{ fromJSON(needs.checks.outputs.test_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,33 +111,20 @@ jobs:
       - name: Run offline simulator tests
         timeout-minutes: 15
         env:
-          FAMILIES: ${{ join(matrix.families, ',') }}
+          FAMILY: ${{ matrix.family }}
           SUITE: ${{ matrix.suite }}
           SHARD_INDEX: ${{ matrix.shardIndex }}
           SHARD_COUNT: ${{ matrix.shardCount }}
         run: |
-          IFS=',' read -r -a families <<< "$FAMILIES"
-          test "${#families[@]}" -gt 0
-          test_pids=()
-          for family in "${families[@]}"; do
-            python3 scripts/verify_ios.py --family "$family" --suite "$SUITE" \
-              --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT" \
-              --test-products "$RUNNER_TEMP/native-test-products/Products" \
-              --output "$RUNNER_TEMP/native-tests/$family" &
-            test_pids+=("$!")
-          done
-          test_status=0
-          for test_pid in "${test_pids[@]}"; do
-            if ! wait "$test_pid"; then
-              test_status=1
-            fi
-          done
-          exit "$test_status"
+          python3 scripts/verify_ios.py --family "$FAMILY" --suite "$SUITE" \
+            --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT" \
+            --test-products "$RUNNER_TEMP/native-test-products/Products" \
+            --output "$RUNNER_TEMP/native-tests/$FAMILY"
       - name: Retain failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-failure-${{ matrix.suite }}-${{ matrix.shardIndex }}
+          name: native-failure-${{ matrix.family }}-${{ matrix.suite }}-${{ matrix.shardIndex }}
           path: |
             ${{ runner.temp }}/native-tests/**/*.log
             ${{ runner.temp }}/native-tests/**/*.xcresult

@@ -9,6 +9,7 @@ import selectors
 import signal
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -26,14 +27,15 @@ def ci_matrix():
     return {
         "include": [
             {
-                "families": list(SIMULATORS),
+                "family": family,
                 "suite": suite,
                 "shardIndex": index,
                 "shardCount": count,
-                "label": f"{suite} {index + 1} of {count}",
+                "label": f"{family} {suite} {index + 1} of {count}",
             }
             for suite, count in [("unit", 1), ("ui", UI_SHARDS)]
             for index in range(count)
+            for family in SIMULATORS
         ]
     }
 
@@ -328,13 +330,18 @@ def main():
             ).stdout.strip()
             device = {"udid": identifier, "state": "Shutdown"}
         identifier = device["udid"]
+        started = time.monotonic()
+        print(f"{family}: preparing simulator {identifier} on {runtime['name']}", flush=True)
         if device["state"] != "Booted":
             run(["xcrun", "simctl", "boot", identifier])
         run(["xcrun", "simctl", "bootstatus", identifier, "-b"])
+        print(f"{family}: simulator ready after {time.monotonic() - started:.1f}s", flush=True)
         bundle = output / f"{family}.xcresult"
         log = output / f"{family}.log"
         destination = f"platform=iOS Simulator,id={identifier}"
         discovery = output / f"{family}-discovery.json"
+        started = time.monotonic()
+        print(f"{family}: discovering compiled tests", flush=True)
         run(
             [
                 "xcodebuild",
@@ -354,6 +361,7 @@ def main():
             stdout=subprocess.PIPE,
         )
         identifiers = test_identifiers(json.loads(discovery.read_text()))
+        print(f"{family}: test discovery took {time.monotonic() - started:.1f}s", flush=True)
         selected = select_tests(identifiers, args.suite, args.shard_index, args.shard_count)
         plan = {
             "family": family,

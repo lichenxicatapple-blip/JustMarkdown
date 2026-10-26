@@ -37,12 +37,12 @@ class TestDiscoveryAndSharding(unittest.TestCase):
     def test_ci_matrix_executes_every_method_exactly_once_on_each_family(self):
         identifiers = verify_ios.test_identifiers(self.enumeration())
         jobs = verify_ios.ci_matrix()["include"]
-        self.assertEqual({family for job in jobs for family in job["families"]}, {"iPhone", "iPad"})
+        self.assertEqual({job["family"] for job in jobs}, {"iPhone", "iPad"})
         for family in ["iPhone", "iPad"]:
             executed = [
                 test
                 for job in jobs
-                if family in job["families"]
+                if family == job["family"]
                 for test in verify_ios.select_tests(
                     identifiers, job["suite"], job["shardIndex"], job["shardCount"]
                 )
