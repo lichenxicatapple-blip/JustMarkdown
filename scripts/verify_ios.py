@@ -20,7 +20,7 @@ SIMULATORS = {
     "iPad": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
 }
 TEST_TARGETS = {"unit": "JustMarkdownTests", "ui": "JustMarkdownUITests"}
-UI_SHARDS = 4
+UI_SHARDS = {"CI": 2, "Full": 4}
 TEST_PLANS = ROOT / "JustMarkdown.xcodeproj/xcshareddata/xctestplans"
 
 
@@ -35,7 +35,7 @@ def ci_matrix(test_plan="CI"):
                 "shardCount": count,
                 "label": f"{family} {suite} {index + 1} of {count}",
             }
-            for suite, count in [("unit", 1), ("ui", UI_SHARDS if test_plan == "Full" else 1)]
+            for suite, count in [("unit", 1), ("ui", UI_SHARDS[test_plan])]
             for index in range(count)
             for family in SIMULATORS
         ]
@@ -123,7 +123,9 @@ def select_tests(identifiers, suite, index, count):
     tests = sorted(
         item for item in identifiers if suite == "all" or item.split("/")[0] == TEST_TARGETS[suite]
     )
-    selected = tests[index::count]
+    size, remainder = divmod(len(tests), count)
+    start = index * size + min(index, remainder)
+    selected = tests[start : start + size + (index < remainder)]
     if not selected:
         raise ValueError("The selected test shard is empty")
     return selected
@@ -424,7 +426,13 @@ def main():
         expected_count = (
             len(selected_ui) if args.suite == "ui" and selected_ui is not None else None
         )
-        if args.shard_count > 1:
+        if args.shard_count > 1 and args.suite == "ui" and selected_ui is not None:
+            # The CI plan already names every required UI method. Its compiled
+            # selection was validated above; do not launch XCTest just to list it again.
+            identifiers = sorted(selected_ui)
+            selected = select_tests(identifiers, args.suite, args.shard_index, args.shard_count)
+            expected_count = len(selected)
+        elif args.shard_count > 1:
             discovery = output / f"{family}-discovery.json"
             started = time.monotonic()
             print(f"{family}: discovering compiled tests for sharding", flush=True)

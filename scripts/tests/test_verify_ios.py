@@ -57,8 +57,10 @@ class TestDiscoveryAndSharding(unittest.TestCase):
         identifiers = verify_ios.test_identifiers(enumeration)
         selected = [
             test
-            for index in range(verify_ios.UI_SHARDS)
-            for test in verify_ios.select_tests(identifiers, "ui", index, verify_ios.UI_SHARDS)
+            for index in range(verify_ios.UI_SHARDS["Full"])
+            for test in verify_ios.select_tests(
+                identifiers, "ui", index, verify_ios.UI_SHARDS["Full"]
+            )
         ]
         self.assertEqual(selected.count(new_test), 1)
 
@@ -71,10 +73,23 @@ class TestDiscoveryAndSharding(unittest.TestCase):
         self.assertEqual(
             collections.Counter((job["family"], job["suite"]) for job in jobs),
             collections.Counter(
-                (family, suite) for family in ["iPhone", "iPad"] for suite in ["unit", "ui"]
+                {
+                    (family, suite): 1 if suite == "unit" else 2
+                    for family in ["iPhone", "iPad"]
+                    for suite in ["unit", "ui"]
+                }
             ),
         )
-        self.assertTrue(all(job["shardIndex"] == 0 and job["shardCount"] == 1 for job in jobs))
+        for family in ["iPhone", "iPad"]:
+            ui_jobs = [job for job in jobs if job["family"] == family and job["suite"] == "ui"]
+            executed = [
+                test
+                for job in ui_jobs
+                for test in verify_ios.select_tests(
+                    core, "ui", job["shardIndex"], job["shardCount"]
+                )
+            ]
+            self.assertEqual(collections.Counter(executed), collections.Counter(core))
 
     def test_core_discovery_only_allows_ui_cases_outside_approved_scope_to_be_disabled(self):
         enumeration = self.enumeration()
