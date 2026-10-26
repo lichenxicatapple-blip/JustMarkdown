@@ -130,6 +130,32 @@ def failure_details(bundle, device, output):
         print(f"Unable to collect document diagnostics: {type(error).__name__}", flush=True)
 
 
+def test_summary(bundle):
+    """Require a complete offline XCTest result; skipped cases fail verification."""
+    try:
+        summary = json.loads(
+            run(
+                ["xcrun", "xcresulttool", "get", "test-results", "summary", "--path", str(bundle)],
+                capture_output=True,
+                text=True,
+            ).stdout
+        )
+        counts = {
+            key: summary[key]
+            for key in ["totalTestCount", "passedTests", "failedTests", "skippedTests"]
+        }
+        if not all(isinstance(value, int) and value >= 0 for value in counts.values()):
+            raise ValueError("Invalid test counts")
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError) as error:
+        print(f"Unable to verify XCTest results: {type(error).__name__}", flush=True)
+        return None
+    if counts["skippedTests"]:
+        print(
+            f"Verification incomplete: {counts['skippedTests']} test(s) were skipped.", flush=True
+        )
+    return counts
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family", choices=["iPhone", "iPad"], help="Verify one simulator family")
@@ -154,6 +180,7 @@ def main():
             "JustMarkdown",
             "JustMarkdownTests",
             "JustMarkdownUITests",
+            "JustMarkdownLiveTests",
             "scripts",
         ]
     )
@@ -217,18 +244,28 @@ def main():
             "test",
         ]
         code = run_tests(arguments, log)
+        counts = test_summary(bundle)
+        passed = (
+            code == 0
+            and counts is not None
+            and counts["totalTestCount"] > 0
+            and counts["passedTests"] == counts["totalTestCount"]
+            and counts["failedTests"] == 0
+            and counts["skippedTests"] == 0
+        )
         results.append(
             {
                 "family": family,
                 "device": identifier,
                 "runtime": runtime["name"],
-                "passed": code == 0,
+                "passed": passed,
+                "testCounts": counts,
                 "resultBundle": str(bundle),
                 "log": str(log),
             }
         )
-        print(f"{family}: {'passed' if code == 0 else 'failed'}", flush=True)
-        if code != 0:
+        print(f"{family}: {'passed' if passed else 'failed'}", flush=True)
+        if not passed:
             failure_details(bundle, identifier, output)
             print(
                 "\n".join(log.read_text(errors="replace").splitlines()[-80:]),

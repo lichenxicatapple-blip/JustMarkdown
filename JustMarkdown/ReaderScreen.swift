@@ -55,7 +55,7 @@ struct ReaderScreen: View {
                 } else {
                     ZStack {
                         ReaderWebView(session: session)
-                            .ignoresSafeArea(.container, edges: .bottom)
+                            .ignoresSafeArea(.all, edges: .bottom)
                             .simultaneousGesture(TapGesture().onEnded { toolsExpanded = false })
                         if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }
@@ -69,7 +69,7 @@ struct ReaderScreen: View {
                                         Circle())
                             }
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
-                            .padding(.leading, 8).padding(.top, 16)
+                            .padding(.leading, 8).padding(.top, ReaderDesign.floatingInset)
                             .accessibilityLabel(
                                 session.outlineExpanded
                                     ? String(localized: "Hide contents") : String(localized: "Show contents")
@@ -89,20 +89,27 @@ struct ReaderScreen: View {
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .padding(
                                 .trailing,
-                                session.agentOpen && geometry.size.width >= 900 ? ReaderDesign.agentWidth + 32 : 8
+                                session.agentOpen && geometry.size.width >= 900
+                                    ? ReaderDesign.agentWidth + 2 * ReaderDesign.floatingInset : 8
                             )
-                            .padding(.top, 16)
+                            .padding(.top, ReaderDesign.floatingInset)
                             .accessibilityLabel("Close document")
                             .accessibilityIdentifier("CloseDocument")
                         }
                     }
                     .overlay(alignment: .bottomTrailing) {
                         if !session.agentModalActive {
-                            floatingActions.padding(
-                                .trailing,
-                                session.agentOpen && geometry.size.width >= 900 ? ReaderDesign.agentWidth + 32 : 16
-                            )
-                            .padding(.bottom, 16)
+                            ReaderFloatingControls(
+                                trailingInset: session.agentOpen && geometry.size.width >= 900
+                                    ? ReaderDesign.agentWidth + 2 * ReaderDesign.floatingInset
+                                    : ReaderDesign.floatingInset
+                            ) { floatingActions }
+                            .ignoresSafeArea(.all, edges: .bottom)
+                            .animation(toolsAnimation, value: toolsExpanded)
+                            .animation(toolsAnimation, value: compactTools)
+                            .animation(
+                                reduceMotion ? nil : .easeOut(duration: ReaderDesign.agentDuration),
+                                value: session.agentOpen)
                         }
                     }
                     .allowsHitTesting(!session.isClosingDocument)
@@ -314,8 +321,16 @@ struct ReaderScreen: View {
         }
     }
 
+    private var compactTools: Bool {
+        horizontalSizeClass == .compact || (session.mode == "source" && session.sourceFocused)
+    }
+
+    private var toolsAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration)
+    }
+
     private var floatingActions: some View {
-        let compact = horizontalSizeClass == .compact || (session.mode == "source" && session.sourceFocused)
+        let compact = compactTools
         return GlassEffectContainer(spacing: ReaderDesign.floatingGap) {
             HStack(spacing: ReaderDesign.floatingGap) {
                 if !compact || toolsExpanded {
@@ -399,8 +414,6 @@ struct ReaderScreen: View {
         }
         .foregroundStyle(.primary)
         .disabled(!session.rendererReady)
-        .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: toolsExpanded)
-        .animation(reduceMotion ? nil : .easeOut(duration: ReaderDesign.toolsDuration), value: compact)
     }
 
     private func presentModelSettings() {

@@ -35,7 +35,19 @@ python3 scripts/build_native_web.py --check
 
 ## 测试
 
-运行单元、WebKit 集成与原生 UI 测试：
+测试按依赖环境管理。CI 使用 `JustMarkdown` scheme，真实模型使用独立的 `JustMarkdownLive` scheme；实体键盘和输入浮条由真机人工验证。
+
+| 类型 | 维护位置 | 验证内容 | CI |
+| --- | --- | --- | --- |
+| 单元测试 | `JustMarkdownTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
+| WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
+| UI 测试 | `JustMarkdownUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 在两端模拟器上运行 |
+| 真实模型测试 | `JustMarkdownLiveTests` | 实际服务的两种协议、多轮对话、编辑及撤销重做 | 只编译，不发送请求 |
+| 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 不在托管流水线中运行 |
+
+### 离线自动化测试
+
+运行完整的单元、WebKit 集成和 UI 测试：
 
 ```sh
 python3 scripts/verify_ios.py
@@ -51,7 +63,7 @@ Xcode 输出实时显示并保留完整日志，控制台可查看当前测试�
 | `--family iPhone` / `--family iPad` | 只验证指定设备类型 |
 | `--output /临时目录/本次运行` | 使用指定且尚不存在的产物目录 |
 
-普通测试使用模拟网络或本机端口，不连接模型供应商。需要真实服务或实体键盘环境的用例可能跳过；提交时区分通过、失败、跳过和未测。测试凭据与正常 App 隔离，结束删除测试记录。
+这些测试只使用模拟网络或本机端口，不连接真实模型服务，不需要外部 API Key。测试凭据与正常 App 隔离，结束删除测试记录。未经维护者明确许可，不得跳过测试或通过排除必测用例绕过失败；环境或配置不足应报告为验证阻塞。脚本要求所有用例通过且跳过数为零。
 
 其他静态检查：
 
@@ -60,22 +72,35 @@ ruff check scripts
 ruff format --check scripts
 ```
 
-[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译及两端回归；结果以对应工作流运行为准。
+[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。托管 runner 只使用模拟器，不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
 
 Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重置副本；入口与样例不编入 Release。文件授权相关变更应经系统选择器打开外部文档复测，输入相关变更应核对对应的软件／实体键盘路径。
 
 ### 真实模型测试
 
-入口是 [AgentFlowTests.swift](JustMarkdownTests/AgentFlowTests.swift) 的 `testLiveAtlasProtocolsConversationAndSourceEdit`。该用例仅接受 HTTPS Atlas 端点，未提供配置时跳过。
+选择 `JustMarkdownLive` scheme，运行 [LiveModelTests.swift](JustMarkdownLiveTests/LiveModelTests.swift) 的 `testAtlasProtocolsConversationAndSourceEdit`。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
 
 1. 在仓库外准备权限为 `0600` 的私有 JSON 文件，包含 `baseURL`、`model`、`key`，以及可选的 `apiProtocol`（`responses` 或 `chatCompletions`；省略时分别测试两种协议）。
-2. 复制本机非共享 Xcode scheme，在 Test → Arguments 取消沿用 Run 的参数与环境变量。
+2. 将 `JustMarkdownLive` 复制为本机非共享 scheme，在 Test → Arguments 中维护本机环境变量；Test 不沿用 Run 的参数与环境变量。
 3. 添加 `JUSTMARKDOWN_LIVE_CONFIG` 指向配置文件，设置 `CFNETWORK_DIAGNOSTICS=0`。
-4. 从测试导航器只运行上述用例，分别选择 iPhone 与 iPad 模拟器。
+4. 分别选择 iPhone 与 iPad 模拟器运行该 scheme。
 
 选择支持工具调用的模型与接口组合；只验证一种协议时填写 `apiProtocol`。实体设备运行时，将配置文件放入测试宿主 App 的沙盒，环境变量支持以 `~/` 开头的应用内路径。
 
 测试使用独立样本文档和 Keychain 服务，结束删除测试凭据。真实调用可能计费；不提交私有 scheme、配置路径、凭据或包含它们的附件。
+
+### 真机人工验证
+
+使用普通 App 启动方式运行 Debug，退出 XCTest 和调试断点后操作设备。`--sample-document --reset-sample-document` 准备独立长文副本；添加 `--ui-testing --ui-test-agent-fixture` 可使用隔离配置和模拟回答，离线检查 AI 界面与按键流程。文件授权检查应另用独立目录，经系统文件选择器打开。
+
+1. 源码中用实体键盘输入和确认中文候选，用方向键移动光标、Enter 换行，检查滚动和内容；用 ⌘Z、⇧⌘Z 撤销重做，再编辑以确认旧重做分支失效。
+2. AI 输入中检查 Enter 发送一次、Shift＋Enter 换行；候选确认和长按重复不误发送。切换软键盘后，回车只换行，发送按钮提交。
+3. 分别显示停靠软键盘、浮动键盘和实体键盘输入浮条。完整停靠键盘缩短内容视口，局部浮条不产生整页底部白边；底部操作保持可点击并避让输入界面。
+4. 用手指和触控板分别反复展开、收起底部操作，并在快速反向操作后再次收起；展开动作保持同一高度，组外仍可操作正文。
+5. 在两个横屏方向和竖屏之间切换，继续在源码与 AI 输入区输入，确认内容、阅读位置和控件布局正确。
+6. 重复切到其他 App 再返回，检查正文、目录、滚动和输入；锁屏解锁及重新连接键盘后再次检查。
+
+真机检查结果记录在对应 PR 或 Issue，注明构建版本、设备、系统、键盘及实际操作结论。CI 通过不代表这些检查已经完成；未执行或失败的项目仍需补验，不能记为通过。
 
 ## 提交修改
 

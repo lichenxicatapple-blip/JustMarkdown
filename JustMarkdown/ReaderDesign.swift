@@ -11,6 +11,7 @@ enum ReaderDesign {
     static let compactFloatingIcon: CGFloat = 18
     static let agentWidth: CGFloat = 384
     static let floatingGap: CGFloat = 10
+    static let floatingInset: CGFloat = 16
     static let outlineIcon: CGFloat = 19
     static let homeMark: CGFloat = 120
     static let homeSlogan: CGFloat = 22

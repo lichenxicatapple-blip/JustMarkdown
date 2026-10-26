@@ -48,6 +48,37 @@ final class ReaderUITests: XCTestCase {
         if allow.waitForExistence(timeout: 5) { allow.tap() }
     }
 
+    func testFloatingToolsRemainInteractiveAfterCollapseAndRapidReversal() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--sample-document", "--reset-sample-document"]
+        app.launch()
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        let toggle = app.buttons["ToolsToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        for cycle in 0..<3 {
+            showTools(app)
+            XCTAssertTrue(app.buttons["GlobalAI"].isHittable)
+            record("tools-expanded-cycle-\(cycle)")
+            toggle.tap()
+            guard app.buttons["GlobalAI"].waitForNonExistence(timeout: 5) else {
+                record("tools-failed-to-collapse-cycle-\(cycle)")
+                XCTFail("The expanded tools must actually disappear after collapsing")
+                return
+            }
+            XCTAssertTrue(toggle.isHittable)
+            toggle.doubleTap()
+        }
+        showTools(app)
+        toggle.tap()
+        XCTAssertTrue(app.buttons["ModeToggle"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(toggle.isHittable)
+    }
+
     func testNativeSourceFillsViewportAndFoldsControlsDuringInput() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -65,6 +96,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(editor.frame.minX, web.frame.minX, accuracy: 1)
         XCTAssertEqual(editor.frame.maxX, web.frame.maxX, accuracy: 1)
         XCTAssertEqual(editor.frame.maxY, web.frame.maxY, accuracy: 1)
+        XCTAssertEqual(editor.frame.maxY, app.frame.maxY, accuracy: 1)
         record("native-source-full-page")
         editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
         XCTAssertTrue(app.buttons["ToolsToggle"].waitForExistence(timeout: 5))
@@ -73,7 +105,14 @@ final class ReaderUITests: XCTestCase {
         record("native-source-keyboard-folded-tools")
         let inserted = editor.value as? String
         editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 2))
+        let foldedTools = app.buttons["ToolsToggle"].frame
         showTools(app)
+        for id in ["ToolsToggle", "SourceUndo", "SourceRedo", "GlobalAI", "ModeToggle", "More"] {
+            let action = app.buttons[id]
+            XCTAssertTrue(action.exists, "Missing action: \(id)")
+            XCTAssertEqual(action.frame.midY, foldedTools.midY, accuracy: 1, "Unfolding must preserve the anchor")
+            XCTAssertFalse(action.frame.intersects(app.keyboards.firstMatch.frame))
+        }
         app.buttons["SourceUndo"].tap()
         XCTAssertTrue(editor.value as? String == inserted, "Consecutive keyboard deletions undo together")
         showTools(app)
@@ -83,6 +122,64 @@ final class ReaderUITests: XCTestCase {
         app.buttons["ModeToggle"].tap()
         XCTAssertTrue(
             app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Native source input."))
+                .firstMatch.waitForExistence(timeout: 10))
+    }
+
+    func testNativeSourceEditingSurvivesRotation() {
+        XCUIDevice.shared.orientation = .portrait
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        let editor = app.textViews["SourceEditor"]
+        let web = app.webViews.firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.14)).tap()
+        editor.typeText("RotationProbe")
+        var text = editor.value as? String
+        for (orientation, name) in [
+            (UIDeviceOrientation.landscapeLeft, "landscape-left"), (.landscapeRight, "landscape-right"),
+            (.portrait, "portrait"),
+        ] {
+            XCUIDevice.shared.orientation = orientation
+            let layout = NSPredicate { _, _ in
+                let frame = editor.frame
+                let viewport = web.frame
+                let keyboard = app.keyboards.firstMatch
+                let bottomFits =
+                    abs(frame.maxY - viewport.maxY) < 1
+                    // XCUI's keyboard frame excludes the input assistant bar.
+                    // Native hosting tests assert the exact keyboard guide boundary.
+                    || (keyboard.exists && frame.maxY <= keyboard.frame.minY + 1)
+                return (app.frame.width > app.frame.height) == orientation.isLandscape
+                    && abs(frame.minX - viewport.minX) < 1 && abs(frame.maxX - viewport.maxX) < 1
+                    && bottomFits && frame.height > 0
+            }
+            let settled = XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: layout, object: editor)], timeout: 8)
+            record("native-source-layout-" + name)
+            XCTAssertEqual(
+                settled, .completed,
+                "Rotated source \(editor.frame), viewport \(web.frame), app \(app.frame), keyboard \(app.keyboards.firstMatch.frame)"
+            )
+            XCTAssertTrue(editor.value as? String == text, "Rotation must preserve the working text")
+            XCTAssertTrue(app.buttons["ToolsToggle"].exists)
+            XCTAssertFalse(app.buttons["GlobalAI"].exists)
+            editor.typeText("x")
+            XCTAssertEqual((editor.value as? String)?.utf16.count, (text?.utf16.count ?? 0) + 1)
+            text = editor.value as? String
+            record("native-source-input-" + name)
+        }
+        showTools(app)
+        app.buttons["ModeToggle"].tap()
+        XCTAssertTrue(
+            app.webViews.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "RotationProbe"))
                 .firstMatch.waitForExistence(timeout: 10))
     }
 
@@ -832,7 +929,29 @@ final class ReaderUITests: XCTestCase {
         app.webViews.buttons["发送问题"].tap()
         XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
         record("ai-source-reading")
-        input.tap()
+        let viewport = app.webViews.firstMatch
+        let inputTrailingInset = viewport.frame.maxX - input.frame.maxX
+        for (orientation, name) in [
+            (UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait"),
+        ] {
+            XCUIDevice.shared.orientation = orientation
+            // Interface orientation can change before the native input's frame.
+            // Resolve the completed layout before synthesizing the next touch.
+            let layout = NSPredicate { _, _ in
+                let frame = input.frame
+                let window = app.frame
+                let viewportFrame = viewport.frame
+                return (window.width > window.height) == orientation.isLandscape
+                    && abs(viewportFrame.maxX - frame.maxX - inputTrailingInset) < 1
+                    && frame.width > 0 && frame.height > 0 && viewportFrame.contains(frame)
+                    && input.isHittable
+            }
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: layout, object: input)], timeout: 8),
+                .completed, "Rotated input \(input.frame), app \(app.frame)")
+            record("ai-source-reading-" + name)
+        }
+        input.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         input.typeText("请修改第一段，让它更简洁。")
         app.webViews.buttons["发送问题"].tap()
         XCTAssertTrue(app.webViews.staticTexts["已修改这句话，其余内容保持原样。"].waitForExistence(timeout: 12))
@@ -1027,72 +1146,6 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
         XCTAssertEqual(input.value as? String, "unsent next question")
         record("agent-reopened-history")
-    }
-
-    func testSourceHardwareKeyboardShortcuts() throws {
-        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "Physical key injection requires iPad")
-        try XCTSkipUnless(
-            ProcessInfo.processInfo.environment["JUSTMARKDOWN_HARDWARE_KEYBOARD_TESTS"] == "1",
-            "Requires a physical keyboard capable test environment")
-        let app = XCUIApplication()
-        app.launchArguments = [
-            "--ui-testing", "--sample-document", "--reset-sample-document",
-            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
-        ]
-        app.launch()
-        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
-        showTools(app)
-        app.buttons["ModeToggle"].tap()
-        let editor = app.textViews["SourceEditor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 8))
-        editor.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.15)).tap()
-        let original = editor.value as? String
-        editor.typeText("native")
-        XCTAssertTrue(app.buttons["ToolsToggle"].exists)
-        XCTAssertFalse(app.buttons["GlobalAI"].exists)
-        let edited = editor.value as? String
-        XCTAssertNotEqual(edited, original)
-        editor.typeKey(XCUIKeyboardKey(rawValue: "z"), modifierFlags: .command)
-        XCTAssertTrue(editor.value as? String == original, "Command-Z uses the shared source history")
-        editor.typeKey(XCUIKeyboardKey(rawValue: "z"), modifierFlags: [.command, .shift])
-        XCTAssertTrue(editor.value as? String == edited, "Command-Shift-Z redoes the same edit")
-        let length = (edited ?? "").utf16.count
-        editor.typeKey(.return, modifierFlags: [])
-        XCTAssertEqual((editor.value as? String ?? "").utf16.count, length + 1)
-        record("source-keyboard-shortcuts-folded-tools")
-        showTools(app)
-        record("source-keyboard-shortcuts-expanded-tools")
-    }
-
-    func testQuestionHardwareKeyboardReturn() throws {
-        try XCTSkipUnless(UIDevice.current.userInterfaceIdiom == .pad, "XCTest physical key injection requires iPad")
-        try XCTSkipUnless(
-            ProcessInfo.processInfo.environment["JUSTMARKDOWN_HARDWARE_KEYBOARD_TESTS"] == "1",
-            "Requires a physical-key capable test environment; current simulator drops Shift+Return even in standard UITextView"
-        )
-        let app = XCUIApplication()
-        let input = openQuestionInput(app)
-        input.typeText("first")
-        // Check UIKit's unmodified cursor movement before relying on this
-        // simulator's physical special-key injection to test custom Return.
-        input.typeKey(.leftArrow, modifierFlags: [])
-        input.typeText("X")
-        guard input.value as? String == "firsXt" else {
-            throw XCTSkip("Simulator physical ArrowLeft injection failed in standard UIKit text editing")
-        }
-        input.typeKey(.rightArrow, modifierFlags: [])
-        let validation = app.webViews.staticTexts["请检查服务地址和模型"]
-        input.typeKey(.return, modifierFlags: .shift)
-        XCTAssertFalse(validation.exists)
-        input.typeText("second")
-        XCTAssertEqual(input.value as? String, "firsXt\nsecond")
-        XCTAssertFalse(validation.exists)
-        input.typeKey(.return, modifierFlags: [])
-        allowDataSharingIfRequested(app)
-        XCTAssertTrue(validation.waitForExistence(timeout: 3), "Physical Return must invoke the send action")
-        XCTAssertEqual(
-            input.value as? String, "", "A committed question remains in conversation after failure")
-        record("question-hardware-return-send")
     }
 
     func testQuestionKeyboardSendButton() {

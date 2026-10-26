@@ -50,7 +50,7 @@ jobs:
           python3 scripts/build_native_web.py --check --audit-dependencies
           python3 -m compileall -q scripts
           plutil -lint JustMarkdown/Info.plist JustMarkdown/PrivacyInfo.xcprivacy JustMarkdown.xcodeproj/project.pbxproj
-          xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests scripts
+          xcrun swift-format lint --strict --recursive --configuration .swift-format JustMarkdown JustMarkdownTests JustMarkdownUITests JustMarkdownLiveTests scripts
       - name: Check Python tooling
         run: |
           python3 -m venv "$RUNNER_TEMP/python-tools"
@@ -62,6 +62,11 @@ jobs:
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
           -configuration Release -destination 'generic/platform=iOS'
           -derivedDataPath "$RUNNER_TEMP/Release" CODE_SIGNING_ALLOWED=NO build
+      - name: Compile live-model tests without making requests
+        run: >-
+          xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdownLive
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath "$RUNNER_TEMP/LiveTestBuild" CODE_SIGNING_ALLOWED=NO build-for-testing
 
   simulators:
     needs: checks
@@ -75,7 +80,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run isolated native tests
+      - name: Run offline simulator tests
         timeout-minutes: 40
         env:
           FAMILY: ${{ matrix.family }}

@@ -1,3 +1,4 @@
+import SwiftUI
 import UIKit
 import WebKit
 import XCTest
@@ -6,13 +7,17 @@ import XCTest
 
 final class WebReaderTests: XCTestCase {
     @MainActor
-    private func waitUntil(timeout: TimeInterval = 35, _ condition: () async throws -> Bool) async throws {
+    private func waitUntil(
+        timeout: TimeInterval = 35, message: @autoclosure () -> String = "Reader did not reach its expected state",
+        file: StaticString = #filePath, line: UInt = #line,
+        _ condition: () async throws -> Bool
+    ) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if try await condition() { return }
             try await Task.sleep(for: .milliseconds(80))
         }
-        XCTFail("Reader did not reach its expected state")
+        XCTFail(message(), file: file, line: line)
         throw CocoaError(.coderReadCorrupt)
     }
 
@@ -72,6 +77,98 @@ final class WebReaderTests: XCTestCase {
         try await waitUntil { bridge.ready && session.rendererReady }
         if try await diagnostics(bridge)["outline"] as? Bool != true { _ = try await bridge.call("toggleOutline") }
         return (session, bridge, window, root)
+    }
+
+    @MainActor
+    func testReaderViewportOnlyAvoidsInputCoveringItsEntireBottomEdge() {
+        let bounds = CGRect(x: 0, y: 0, width: 1210, height: 802)
+        let cases: [(String, CGRect, CGFloat)] = [
+            ("Hidden", CGRect(x: 0, y: 802, width: 1210, height: 0), 802),
+            ("Left mini toolbar", CGRect(x: 5, y: 724.5, width: 65, height: 52.5), 802),
+            ("Right mini toolbar", CGRect(x: 1140, y: 724.5, width: 65, height: 52.5), 802),
+            ("Floating at bottom center", CGRect(x: 445, y: 482, width: 320, height: 320), 802),
+            ("Floating near top", CGRect(x: 445, y: 0, width: 320, height: 320), 802),
+            ("Full-width undocked", CGRect(x: 0, y: 300, width: 1210, height: 320), 802),
+            ("Docked", CGRect(x: 0, y: 482, width: 1210, height: 320), 482),
+            ("Docked overlapping a smaller window", CGRect(x: -100, y: 482, width: 1400, height: 400), 482),
+        ]
+        for (name, keyboard, bottom) in cases {
+            XCTAssertEqual(
+                keyboard.minY + ReaderContainer.viewportBottomOffset(keyboard: keyboard, in: bounds),
+                bottom, accuracy: 0.5, name)
+        }
+    }
+
+    @MainActor
+    func testReaderContainerFillsScreenWhileNativeEditorFollowsKeyboardGuide() async throws {
+        let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("keyboard.md")
+        try Data(("# Keyboard\n\n" + String(repeating: "A line of editable content.\n", count: 100)).utf8).write(
+            to: file)
+        await session.open(file)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let host = UIHostingController(rootView: ReaderScreen(session: session))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer {
+            session.bridge?.detach()
+            window.isHidden = true
+        }
+        try await waitUntil { session.rendererReady }
+        let bridge = try XCTUnwrap(session.bridge)
+        let viewport = try XCTUnwrap(bridge.webView.superview as? ReaderViewport)
+        let container = try XCTUnwrap(viewport.superview as? ReaderContainer)
+        func controlsSurface(in view: UIView) -> ReaderControlsSurface? {
+            if let surface = view as? ReaderControlsSurface { return surface }
+            return view.subviews.lazy.compactMap { controlsSurface(in: $0) }.first
+        }
+        let controls = try XCTUnwrap(controlsSurface(in: window))
+        let actions = try XCTUnwrap(controls.subviews.first)
+        _ = try await bridge.call("toggleMode")
+        try await waitForMode("source", bridge: bridge)
+        let editor = bridge.sourceEditor.textView
+        func layoutFits() -> Bool {
+            window.layoutIfNeeded()
+            let canvas = container.convert(container.bounds, to: window)
+            let source = editor.convert(editor.bounds, to: window)
+            let boundary = container.convert(container.keyboardLayoutGuide.layoutFrame.origin, to: window).y
+            return abs(canvas.maxY - window.bounds.maxY) < 1 && abs(source.maxY - boundary) < 1
+                && source.height > 0
+        }
+        func controlsFit() -> Bool {
+            let safeBottom = controls.safeAreaLayoutGuide.layoutFrame.maxY - 16
+            let keyboardTop = controls.keyboardLayoutGuide.layoutFrame.minY - ReaderDesign.floatingGap
+            return actions.bounds.height > 0 && abs(actions.frame.maxY - min(safeBottom, keyboardTop)) < 1
+        }
+        try await waitUntil(timeout: 8) { layoutFits() && controlsFit() }
+        XCTAssertTrue(controls.keyboardLayoutGuide.followsUndockedKeyboard)
+        XCTAssertTrue(container.keyboardLayoutGuide.followsUndockedKeyboard)
+        XCTAssertNil(controls.hitTest(CGPoint(x: controls.bounds.midX, y: 10), with: nil))
+        XCTAssertNotNil(controls.hitTest(actions.center, with: nil))
+        XCTAssertTrue(editor.becomeFirstResponder())
+        try await waitUntil(
+            timeout: 8,
+            message:
+                "Container \(container.convert(container.bounds, to: window)), source \(editor.convert(editor.bounds, to: window)), keyboard guide \(container.keyboardLayoutGuide.layoutFrame), first responder \(editor.isFirstResponder)"
+        ) { layoutFits() && controlsFit() && container.keyboardLayoutGuide.layoutFrame.height > 0 }
+        editor.selectedRange = NSRange(location: editor.text.utf16.count, length: 0)
+        editor.insertText("Last edited line.")
+        try await waitUntil(timeout: 8) {
+            guard let selection = editor.selectedTextRange else { return false }
+            let caret = editor.convert(editor.caretRect(for: selection.end), to: window)
+            let source = editor.convert(editor.bounds, to: window)
+            return layoutFits() && caret.minY >= source.minY && caret.maxY <= source.maxY + 1
+        }
+        XCTAssertTrue(editor.resignFirstResponder())
+        try await waitUntil(timeout: 8) {
+            layoutFits() && controlsFit()
+                && abs(editor.convert(editor.bounds, to: window).maxY - window.bounds.maxY) < 1
+        }
+        await session.closeDocument()
     }
 
     @MainActor

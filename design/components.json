@@ -53,6 +53,7 @@
       "id": "DocumentSurface",
       "nativeOwners": [
         "JustMarkdown/ReaderWebView.swift",
+        "JustMarkdown/ReaderViewport.swift",
         "JustMarkdown/SourceEditor.swift"
       ],
       "webOwners": [
@@ -109,10 +110,12 @@
     {
       "id": "FloatingActions",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift"
+        "JustMarkdown/ReaderScreen.swift",
+        "JustMarkdown/ReaderFloatingControls.swift"
       ],
       "invariants": [
-        "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group."
+        "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group.",
+        "Native keyboard geometry positions the shared group above input UI without intercepting touches outside the controls; only input covering the entire bottom edge reduces the document viewport."
       ],
       "specification": "design/README.md#阅读与源码"
     },

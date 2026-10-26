@@ -39,6 +39,7 @@ Maintain requirements in these sources rather than duplicating the product speci
 - Maintain the checked-in Xcode project and shared scheme directly. Check target membership and build phases when adding files. Release excludes the Debug fixture and includes `PrivacyInfo.xcprivacy`.
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Verify affected behavior on both simulator families; report actual checks and remaining limits. Browser checks, simulated transport, simulator builds and CI configuration do not prove native device behavior, real provider success or a hosted CI pass.
 - Reproduce bugs and gather evidence before choosing a fix. Distinguish a hypothesis from a confirmed cause; do not add guessed delays. Outline feedback must not combine WebKit's default gray tap highlight with the current-row style.
+- Never skip tests or exclude required cases to bypass a failure without the user's explicit permission. An unavailable test environment is an unresolved verification blocker, not a passing result.
 - Test credentials use independent Keychain services and are deleted afterward. Never temporarily replace the normal App key. Offline dependency files, licenses and fonts must match `vendor/assets.json`.
 
 ## Repository hygiene
