@@ -84,7 +84,14 @@ python3 -m unittest discover -s scripts/tests
 
 runner 按 [GitHub 官方步骤](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners) 注册到仓库，添加 `justmarkdown` 标签，并配置登录后启动的服务。建议使用专用标准账号；使用日常账号时，任务具有该账号对本机文件和服务的访问权限。标准账号需经管理员授权加入 `_developer` 组，并通过系统 `DevToolsSecurity` 启用开发工具权限；测试不需要 Apple ID。注册凭据和 runner 安装目录不进入项目。
 
-本机任务引用 GitHub 的 `local-ci` environment。仓库管理员必须先配置 Required reviewers，仅允许仓库所有者审批，关闭管理员绕过，允许所有者审批自己发起的运行。每次推送、PR 和手动运行均等待本轮审批；获准前 GitHub 不向 runner 分配任务，包括检出代码在内的步骤都不会在本机执行。发起运行不视为审批，不通过脚本代替所有者批准。公开仓库同时要求所有外部贡献者的 fork PR 工作流获批后才能执行。
+runner 的安装及工作路径不能包含空格，以免默认 shell 拆分脚本路径。需要代理的网络按 [GitHub 代理配置](https://docs.github.com/en/actions/how-tos/manage-runners/use-proxy-servers)在 runner 自己的 `.env` 中设置，并排除 localhost 和回环地址；不在仓库写入本机网络配置。
+
+本机任务根据 GitHub 记录的发起人和重新运行操作人选择审批环境，不能依据提交中的作者姓名或邮箱判定信任：
+
+- `local-ci-owner`：两者均为仓库所有者，且事件为推送、手动运行，或所有者从本仓库分支发起的 PR。该环境不设审批，供维护者正常开发使用。
+- `local-ci`：其他任务。仓库管理员必须配置 Required reviewers，仅允许仓库所有者审批，允许本人审批，并保留管理员绕过入口。未获准的任务不会分配到 runner，包括检出代码在内的步骤都不会在本机执行；不通过脚本代替所有者批准。
+
+外部 PR 始终进入审批环境，所有者点击重跑也不改变其来源。公开仓库同时要求所有外部贡献者的 fork PR 工作流获批后才能执行。配置这两个环境后再启用 runner。
 
 批准前审查本轮代码、依赖及工作流。Environment 保护只约束引用它的任务，不是 runner 级强制策略，也不提供系统隔离；移除或替换 `environment` 的工作流可以绕开这一层。不要仅凭任务名称或现有测试通过就批准外部代码，详见 [GitHub 自托管 runner 安全说明](https://docs.github.com/en/actions/reference/security/secure-use)。
 
