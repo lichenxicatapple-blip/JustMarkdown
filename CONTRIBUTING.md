@@ -41,20 +41,13 @@ python3 scripts/build_native_web.py --check
 | --- | --- | --- | --- |
 | 单元测试 | `JustMarkdownTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
 | WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
-| UI 测试 | `JustMarkdownUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 默认运行两端核心流程；完整回归在本地或手动 CI 运行 |
+| UI 测试 | `JustMarkdownUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 在两端模拟器上完整运行 |
 | 真实模型测试 | `JustMarkdownLiveTests` | 实际服务的两种协议、多轮对话、编辑及撤销重做 | 只编译，不发送请求 |
-| 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 不在托管流水线中运行 |
+| 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
 
 ### 离线自动化测试
 
-`JustMarkdown` scheme 提供两个共享的 Xcode 测试计划，维护在 [xctestplans](JustMarkdown.xcodeproj/xcshareddata/xctestplans/)：
-
-| 计划 | 用途 | 范围 |
-| --- | --- | --- |
-| `Full`（本地默认） | 本地完整回归及发布前验证 | 全部单元、集成和 UI 测试 |
-| `CI` | 每次推送及 PR 的核心回归 | 全部单元、集成测试及五条核心 UI 流程 |
-
-核心 UI 覆盖阅读与编辑及旋转、AI 阅读与编辑及撤销、保存失败处理、发送授权、前后台恢复。用例选择由 `CI.xctestplan` 维护，完整计划保留所有 UI 用例；发布前在两端运行完整回归。既定计划内的失败必须解决，不通过改动测试范围绕过。
+`JustMarkdown` scheme 使用唯一的共享测试计划 [Full.xctestplan](JustMarkdown.xcodeproj/xcshareddata/xctestplans/Full.xctestplan)。本地、每次推送、PR 和手动 CI 均完整执行单元、集成和 UI 测试；新增用例由 XCTest 自动发现，不维护核心用例清单。
 
 运行完整的单元、WebKit 集成和 UI 测试：
 
@@ -62,9 +55,9 @@ python3 scripts/build_native_web.py --check
 python3 scripts/verify_ios.py
 ```
 
-脚本先生成资源并检查 JavaScript 语法、Swift 格式，使用 `build-for-testing` 编译一次，再选择已安装的最新 iOS 26+ 运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建；两端使用同一份测试产物执行 `test-without-building`。
+脚本先生成资源并检查 JavaScript 语法、Swift 格式，使用 `build-for-testing` 编译一次，再选择已安装的最新 iOS 26+ 运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建；两端并行使用同一份测试产物执行 `test-without-building`。每端内部顺序执行，任一端失败不取消另一端。
 
-Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。启用 XCTest 单项超时；连续 10 分钟没有输出时中断测试并收集诊断。默认 CI 的测试步骤上限为 15 分钟，手动完整回归为 20 分钟，另预留诊断上传时间。
+Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。启用 XCTest 单项超时；连续 10 分钟没有输出时中断测试并收集诊断。CI 的完整测试步骤上限为 30 分钟，整项任务上限为 40 分钟，包含构建、检查和诊断上传。运行期间使用系统 `caffeinate` 防止空闲休眠。
 
 | 参数 | 行为 |
 | --- | --- |
@@ -72,12 +65,10 @@ Xcode 输出实时显示并保留完整日志，控制台可查看当前测试�
 | `--family iPhone` / `--family iPad` | 只验证指定设备类型 |
 | `--output /临时目录/本次运行` | 使用指定且尚不存在的产物目录 |
 | `--suite unit` / `--suite ui` | 分别运行单元／集成目标或 UI 目标；默认运行全部 |
-| `--test-plan CI` / `--test-plan Full` | 使用核心或完整测试计划；默认 `Full` |
-| `--shard-index 0 --shard-count 4` | 运行所选目标的一个分组，索引从零开始 |
 | `--test-products /临时目录/Products` | 使用同版本 Xcode 构建的可迁移测试产物，不重复构建或检查源码 |
-| `--ci-matrix` | 输出流水线所需的完整任务矩阵，不运行测试 |
+| `--simulator-prefix 名称` | 隔离模拟器名称；默认 `JustMarkdown`，CI 使用 `JustMarkdown CI` |
 
-未分片时直接执行完整测试目标，新增用例由 XCTest 自动发现；CI 的 UI 选择由 Xcode 测试计划约束，并核对实际数量。CI 的 UI 分组直接使用已校验的计划清单；完整回归分组先从编译产物发现全部用例，再按稳定顺序分配。发现错误、空分组或实际数量与分配数量不一致均导致失败。每次运行保存执行选择和结果计数，分片另保存完整清单。脚本校验编译产物的计划与目标选择，单元／集成目标始终完整启用，`Full` 计划不得过滤 UI 用例。
+脚本校验共享计划和编译产物都包含完整的单元／集成、UI 目标，拒绝禁用、排除或仅选择部分用例的计划。结果必须包含所有请求的测试目标，全部通过且跳过数为零；空结果、缺少目标或未完成的结果均导致失败。每端的结果、模拟器准备与测试执行耗时写入 `results.json`；日志与 `.xcresult` 保存在本次产物目录。
 
 这些测试只使用模拟网络或本机端口，不连接真实模型服务，不需要外部 API Key。测试凭据与正常 App 隔离，结束删除测试记录。未经维护者明确许可，不得跳过测试或通过排除必测用例绕过失败；环境或配置不足应报告为验证阻塞。脚本要求所有用例通过且跳过数为零。
 
@@ -89,7 +80,15 @@ ruff format --check scripts
 python3 -m unittest discover -s scripts/tests
 ```
 
-[GitHub Actions](.github/workflows/verify.yml) 配置凭据扫描、格式与资源检查、Release 编译、真实模型测试目标的编译及两端离线回归。每轮按所选计划构建并打包一次模拟器测试产物；默认 `CI` 计划有六个测试作业：两端单元／集成目标各一组，核心 UI 各两组。手动运行工作流时，`full_ui` 默认开启，使用 `Full` 计划并将每端 UI 分为四组。最多五个作业并行，每个 runner 只运行一个模拟器。任意必测作业失败都会使流水线失败，其余作业继续执行；更新提交自动取消同一分支的旧流水线。计划范围、编译产物及分片完整性由 `scripts/tests/` 下的标准库单元测试验证。托管 runner 不连接开发者的真机，也不配置真实模型密钥；结果以对应工作流运行为准。
+[GitHub Actions](.github/workflows/verify.yml) 使用带 `justmarkdown` 标签的 ARM64 macOS 自托管 runner，执行全部检查、Release 编译、真实模型测试目标的编译及两端完整离线回归。单个 runner 依次接收任务，每轮内部并行运行两端模拟器；工作目录与日常开发目录分开，CI 模拟器使用独立名称。runner 需安装上表工具，Xcode 位于 `/Applications/Xcode.app`，并保持运行账号登录、机器联网；runner 离线时已获准的任务排队。
+
+runner 按 [GitHub 官方步骤](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners) 注册到仓库，添加 `justmarkdown` 标签，并配置登录后启动的服务。建议使用专用标准账号；使用日常账号时，任务具有该账号对本机文件和服务的访问权限。标准账号需经管理员授权加入 `_developer` 组，并通过系统 `DevToolsSecurity` 启用开发工具权限；测试不需要 Apple ID。注册凭据和 runner 安装目录不进入项目。
+
+本机任务引用 GitHub 的 `local-ci` environment。仓库管理员必须先配置 Required reviewers，仅允许仓库所有者审批，关闭管理员绕过，允许所有者审批自己发起的运行。每次推送、PR 和手动运行均等待本轮审批；获准前 GitHub 不向 runner 分配任务，包括检出代码在内的步骤都不会在本机执行。发起运行不视为审批，不通过脚本代替所有者批准。公开仓库同时要求所有外部贡献者的 fork PR 工作流获批后才能执行。
+
+批准前审查本轮代码、依赖及工作流。Environment 保护只约束引用它的任务，不是 runner 级强制策略，也不提供系统隔离；移除或替换 `environment` 的工作流可以绕开这一层。不要仅凭任务名称或现有测试通过就批准外部代码，详见 [GitHub 自托管 runner 安全说明](https://docs.github.com/en/actions/reference/security/secure-use)。
+
+GitHub 展示真实执行状态、完整日志与两端结果摘要，始终保留结果和测试日志，失败时附完整 `.xcresult`。任一检查失败都会使流水线失败；更新提交自动取消同一分支的旧流水线。CI 不连接真机，不配置真实模型密钥；实体键盘及真实模型继续使用各自独立的验证入口。
 
 Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重置副本；入口与样例不编入 Release。文件授权相关变更应经系统选择器打开外部文档复测，输入相关变更应核对对应的软件／实体键盘路径。
 

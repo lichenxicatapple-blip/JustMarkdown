@@ -4,11 +4,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      full_ui:
-        description: Run the complete UI regression suite
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -18,37 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-  TEST_PLAN: ${{ github.event_name == 'workflow_dispatch' && inputs.full_ui && 'Full' || 'CI' }}
+  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
 
 jobs:
-  checks:
-    runs-on: macos-26
-    timeout-minutes: 15
-    outputs:
-      test_matrix: ${{ steps.plan.outputs.matrix }}
+  verify:
+    name: Full iPhone and iPad regression
+    environment: local-ci
+    runs-on: [self-hosted, macOS, ARM64, justmarkdown]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Show local toolchain
+        run: |
+          id -un
+          xcodebuild -version
+          xcrun simctl list runtimes
+          python3 --version
+          node --version
       - name: Scan the working tree and Git history for credentials
         run: |
-          case "$(uname -m)" in
-            arm64)
-              gitleaks_asset=darwin_arm64
-              gitleaks_digest=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
-              ;;
-            x86_64)
-              gitleaks_asset=darwin_x64
-              gitleaks_digest=dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709
-              ;;
-            *) exit 1 ;;
-          esac
-          gitleaks_archive="$RUNNER_TEMP/gitleaks.tar.gz"
-          curl --fail --silent --show-error --location \
-            "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_${gitleaks_asset}.tar.gz" \
-            --output "$gitleaks_archive"
+          gitleaks_digest=b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5
+          mkdir -p "$RUNNER_TOOL_CACHE"
+          gitleaks_archive="$RUNNER_TOOL_CACHE/gitleaks_8.30.1_darwin_arm64.tar.gz"
+          if [ ! -f "$gitleaks_archive" ]; then
+            curl --fail --silent --show-error --location \
+              'https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_arm64.tar.gz' \
+              --output "$RUNNER_TEMP/gitleaks.tar.gz"
+            printf '%s  %s\n' "$gitleaks_digest" "$RUNNER_TEMP/gitleaks.tar.gz" | shasum -a 256 --check
+            mv "$RUNNER_TEMP/gitleaks.tar.gz" "$gitleaks_archive"
+          fi
           printf '%s  %s\n' "$gitleaks_digest" "$gitleaks_archive" | shasum -a 256 --check
           tar -xzf "$gitleaks_archive" -C "$RUNNER_TEMP" gitleaks
           "$RUNNER_TEMP/gitleaks" dir . --no-banner --redact=100
@@ -74,67 +70,56 @@ jobs:
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
           -configuration Release -destination 'generic/platform=iOS'
           -derivedDataPath "$RUNNER_TEMP/Release" CODE_SIGNING_ALLOWED=NO build
-      - name: Build simulator tests once
-        run: >-
-          xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdown
-          -testPlan "$TEST_PLAN"
-          -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/NativeTestBuild" build-for-testing
-      - name: Package simulator test products
-        run: tar -czf "$RUNNER_TEMP/native-test-products.tar.gz" -C "$RUNNER_TEMP/NativeTestBuild/Build" Products
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: native-test-products
-          path: ${{ runner.temp }}/native-test-products.tar.gz
-          retention-days: 1
-      - name: Plan required simulator jobs
-        id: plan
-        run: python3 scripts/verify_ios.py --ci-matrix --test-plan "$TEST_PLAN" >> "$GITHUB_OUTPUT"
       - name: Compile live-model tests without making requests
         run: >-
           xcodebuild -project JustMarkdown.xcodeproj -scheme JustMarkdownLive
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath "$RUNNER_TEMP/LiveTestBuild" CODE_SIGNING_ALLOWED=NO build-for-testing
-
-  simulators:
-    name: ${{ matrix.label }}
-    needs: checks
-    runs-on: macos-26
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      max-parallel: 5
-      matrix: ${{ fromJSON(needs.checks.outputs.test_matrix) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: native-test-products
-          path: ${{ runner.temp }}/native-test-products
-      - name: Unpack simulator test products
-        run: tar -xzf "$RUNNER_TEMP/native-test-products/native-test-products.tar.gz" -C "$RUNNER_TEMP/native-test-products"
-      - name: Run offline simulator tests
-        timeout-minutes: ${{ env.TEST_PLAN == 'Full' && 20 || 15 }}
-        env:
-          FAMILY: ${{ matrix.family }}
-          SUITE: ${{ matrix.suite }}
-          SHARD_INDEX: ${{ matrix.shardIndex }}
-          SHARD_COUNT: ${{ matrix.shardCount }}
+      - name: Run all offline tests on iPhone and iPad
+        timeout-minutes: 30
+        run: >-
+          caffeinate -i python3 scripts/verify_ios.py
+          --simulator-prefix 'JustMarkdown CI'
+          --output "$RUNNER_TEMP/native-tests"
+      - name: Publish test summary
+        if: always()
         run: |
-          python3 scripts/verify_ios.py --family "$FAMILY" --suite "$SUITE" \
-            --test-plan "$TEST_PLAN" \
-            --shard-index "$SHARD_INDEX" --shard-count "$SHARD_COUNT" \
-            --test-products "$RUNNER_TEMP/native-test-products/Products" \
-            --output "$RUNNER_TEMP/native-tests/$FAMILY"
-      - name: Retain failure diagnostics
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          results = Path(os.environ["RUNNER_TEMP"]) / "native-tests/results.json"
+          if results.is_file():
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
+                  summary.write("| Simulator | Result | Passed | Failed | Skipped | Test execution |\n")
+                  summary.write("| --- | --- | ---: | ---: | ---: | ---: |\n")
+                  for result in json.loads(results.read_text()):
+                      counts = result.get("testCounts") or {}
+                      status = "Passed" if result["passed"] else "Failed"
+                      seconds = result.get("executionSeconds")
+                      duration = f"{seconds:.1f}s" if seconds is not None else "—"
+                      summary.write(
+                          f"| {result['family']} | {status} | {counts.get('passedTests', '—')} "
+                          f"| {counts.get('failedTests', '—')} | {counts.get('skippedTests', '—')} "
+                          f"| {duration} |\n"
+                      )
+          PYTHON
+      - name: Retain test results and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-results
+          path: |
+            ${{ runner.temp }}/native-tests/*.log
+            ${{ runner.temp }}/native-tests/results.json
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Retain full failure diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: native-failure-${{ matrix.family }}-${{ matrix.suite }}-${{ matrix.shardIndex }}
-          path: |
-            ${{ runner.temp }}/native-tests/**/*.log
-            ${{ runner.temp }}/native-tests/**/*.xcresult
-            ${{ runner.temp }}/native-tests/**/*.json
+          name: native-failure-diagnostics
+          path: ${{ runner.temp }}/native-tests/*.xcresult
           retention-days: 7
+          if-no-files-found: ignore

@@ -1,216 +1,250 @@
-import collections
+import copy
+import json
 import plistlib
+import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from scripts import verify_ios
 
 
-class TestDiscoveryAndSharding(unittest.TestCase):
-    def enumeration(self):
+class FullTestExecution(unittest.TestCase):
+    def setUp(self):
+        output = patch("builtins.print")
+        output.start()
+        self.addCleanup(output.stop)
+
+    def metadata(self):
         return {
-            "errors": [],
-            "values": [
+            "TestPlan": {"Name": "Full"},
+            "TestConfigurations": [
                 {
-                    "disabledTests": [],
-                    "enabledTests": [
-                        {"identifier": "JustMarkdownTests/EmptyBaseSuite"},
-                        *[
-                            {"identifier": f"JustMarkdownTests/Unit/testCase{index}()"}
-                            for index in range(5)
-                        ],
-                        *[
-                            {"identifier": f"JustMarkdownUITests/Reader/testCase{index}()"}
-                            for index in range(11)
-                        ],
+                    "IsEnabled": True,
+                    "TestTargets": [
+                        {"BlueprintName": "JustMarkdownTests"},
+                        {"BlueprintName": "JustMarkdownUITests"},
                     ],
                 }
             ],
         }
 
-    def test_discovery_uses_compiled_methods_and_ignores_empty_base_suites(self):
-        identifiers = verify_ios.test_identifiers(self.enumeration())
-        self.assertEqual(len(identifiers), 16)
-        self.assertTrue(all(len(item.split("/")) == 3 for item in identifiers))
-        self.assertTrue(all(not item.endswith("()") for item in identifiers))
+    def test_shared_plan_enables_both_complete_targets(self):
+        verify_ios.validate_test_plan()
+        original = json.loads((verify_ios.TEST_PLANS / "Full.xctestplan").read_text())
+        for changes in [
+            {"enabled": False},
+            {"selectedTests": []},
+            {"selectedTests": ["Reader/testOne()"]},
+            {"skippedTests": ["Reader/testOne()"]},
+        ]:
+            for index in range(2):
+                plan = copy.deepcopy(original)
+                plan["testTargets"][index].update(changes)
+                with tempfile.TemporaryDirectory() as directory:
+                    plans = Path(directory)
+                    (plans / "Full.xctestplan").write_text(json.dumps(plan))
+                    with (
+                        self.subTest(index=index, changes=changes),
+                        patch.object(verify_ios, "TEST_PLANS", plans),
+                        self.assertRaises(ValueError),
+                    ):
+                        verify_ios.validate_test_plan()
 
-    def test_ci_matrix_executes_every_method_exactly_once_on_each_family(self):
-        identifiers = verify_ios.test_identifiers(self.enumeration())
-        jobs = verify_ios.ci_matrix("Full")["include"]
-        self.assertEqual({job["family"] for job in jobs}, {"iPhone", "iPad"})
-        for family in ["iPhone", "iPad"]:
-            executed = [
-                test
-                for job in jobs
-                if family == job["family"]
-                for test in verify_ios.select_tests(
-                    identifiers, job["suite"], job["shardIndex"], job["shardCount"]
-                )
-            ]
-            self.assertEqual(collections.Counter(executed), collections.Counter(identifiers))
-
-    def test_new_tests_are_included_without_updating_shard_lists(self):
-        enumeration = self.enumeration()
-        new_test = "JustMarkdownUITests/Reader/testNewBehavior"
-        enumeration["values"][0]["enabledTests"].append({"identifier": new_test + "()"})
-        identifiers = verify_ios.test_identifiers(enumeration)
-        selected = [
-            test
-            for index in range(verify_ios.UI_SHARDS["Full"])
-            for test in verify_ios.select_tests(
-                identifiers, "ui", index, verify_ios.UI_SHARDS["Full"]
-            )
-        ]
-        self.assertEqual(selected.count(new_test), 1)
-
-    def test_ci_and_full_plans_keep_unit_targets_complete_and_distinguish_ui_scope(self):
-        self.assertIsNone(verify_ios.required_ui_tests("Full"))
-        core = verify_ios.required_ui_tests("CI")
-        self.assertGreater(len(core), 0)
-        self.assertTrue(all(item.startswith("JustMarkdownUITests/") for item in core))
-        jobs = verify_ios.ci_matrix("CI")["include"]
-        self.assertEqual(
-            collections.Counter((job["family"], job["suite"]) for job in jobs),
-            collections.Counter(
-                {
-                    (family, suite): 1 if suite == "unit" else 2
-                    for family in ["iPhone", "iPad"]
-                    for suite in ["unit", "ui"]
-                }
-            ),
-        )
-        for family in ["iPhone", "iPad"]:
-            ui_jobs = [job for job in jobs if job["family"] == family and job["suite"] == "ui"]
-            executed = [
-                test
-                for job in ui_jobs
-                for test in verify_ios.select_tests(
-                    core, "ui", job["shardIndex"], job["shardCount"]
-                )
-            ]
-            self.assertEqual(collections.Counter(executed), collections.Counter(core))
-
-    def test_core_discovery_only_allows_ui_cases_outside_approved_scope_to_be_disabled(self):
-        enumeration = self.enumeration()
-        group = enumeration["values"][0]
-        omitted = group["enabledTests"][-3:]
-        group["enabledTests"] = group["enabledTests"][:-3]
-        group["disabledTests"] = omitted
-        core = {
-            item["identifier"].removesuffix("()")
-            for item in group["enabledTests"]
-            if item["identifier"].startswith("JustMarkdownUITests/")
-        }
-        self.assertEqual(len(verify_ios.test_identifiers(enumeration, core)), 13)
-        with self.assertRaises(ValueError):
-            verify_ios.test_identifiers(enumeration)
-        for disabled in [group["enabledTests"][1], group["enabledTests"][-1]]:
-            group["disabledTests"] = [disabled]
-            with self.assertRaises(ValueError):
-                verify_ios.test_identifiers(enumeration, core)
-        group["disabledTests"] = omitted
-        with self.assertRaises(ValueError):
-            verify_ios.test_identifiers(
-                enumeration, core | {omitted[0]["identifier"].removesuffix("()")}
-            )
-
-    def test_prebuilt_plan_rejects_profile_mismatch_or_hidden_test_filters(self):
-        with tempfile.TemporaryDirectory() as directory:
-            products = Path(directory)
-            specification = products / "JustMarkdown_CI_iphonesimulator.xctestrun"
-            unit = {"BlueprintName": "JustMarkdownTests"}
-            ui = {
-                "BlueprintName": "JustMarkdownUITests",
-                "OnlyTestIdentifiers": [
-                    item.split("/", 1)[1] + "()" for item in verify_ios.required_ui_tests("CI")
-                ],
-            }
-            metadata = {
-                "TestPlan": {"Name": "CI"},
-                "TestConfigurations": [{"IsEnabled": True, "TestTargets": [unit, ui]}],
-            }
-            specification.write_bytes(plistlib.dumps(metadata))
-            self.assertEqual(verify_ios.test_run_specification(products, "CI"), specification)
-            with self.assertRaises(ValueError):
-                verify_ios.test_run_specification(products, "Full")
-            for item, key, value in [
-                (unit, "OnlyTestIdentifiers", ["Unit/testOne()"]),
-                (unit, "SkipTestIdentifiers", ["Unit/testOne()"]),
-                (ui, "OnlyTestIdentifiers", ["Reader/testOther()"]),
-                (metadata["TestPlan"], "Name", "Full"),
+    def test_prebuilt_products_cannot_filter_either_target(self):
+        for index in range(2):
+            for key, value in [
+                ("OnlyTestIdentifiers", []),
+                ("OnlyTestIdentifiers", ["Reader/testOne()"]),
+                ("SkipTestIdentifiers", ["Reader/testOne()"]),
             ]:
-                previous = item.get(key)
-                item[key] = value
-                specification.write_bytes(plistlib.dumps(metadata))
-                with self.subTest(key=key), self.assertRaises(ValueError):
-                    verify_ios.test_run_specification(products, "CI")
-                if previous is None:
-                    del item[key]
-                else:
-                    item[key] = previous
+                metadata = self.metadata()
+                metadata["TestConfigurations"][0]["TestTargets"][index][key] = value
+                with tempfile.TemporaryDirectory() as directory:
+                    products = Path(directory)
+                    (products / "JustMarkdown_Full.xctestrun").write_bytes(plistlib.dumps(metadata))
+                    with self.subTest(index=index, key=key), self.assertRaises(ValueError):
+                        verify_ios.test_run_specification(products)
 
-    def test_partition_is_independent_of_discovery_order(self):
-        identifiers = verify_ios.test_identifiers(self.enumeration())
-        for index in range(4):
-            self.assertEqual(
-                verify_ios.select_tests(identifiers, "ui", index, 4),
-                verify_ios.select_tests(list(reversed(identifiers)), "ui", index, 4),
-            )
-
-    def test_disabled_tests_and_discovery_errors_cannot_pass(self):
-        for field, value in [
-            ("errors", ["discovery failed"]),
-            ("disabledTests", [{"identifier": "JustMarkdownTests/Unit/testDisabled()"}]),
-        ]:
-            enumeration = self.enumeration()
-            if field == "errors":
-                enumeration[field] = value
-            else:
-                enumeration["values"][0][field] = value
-            with self.assertRaises(ValueError):
-                verify_ios.test_identifiers(enumeration)
-
-    def test_malformed_duplicate_or_missing_targets_cannot_pass(self):
-        cases = [{}, {"errors": [], "values": []}]
-        for identifier in [
-            None,
-            "JustMarkdownUITests/Reader/unknown",
-            "UnexpectedTarget/Reader/testUnexpected()",
-            "JustMarkdownTests/Unit/testCase0()",
-        ]:
-            enumeration = self.enumeration()
-            enumeration["values"][0]["enabledTests"].append({"identifier": identifier})
-            cases.append(enumeration)
-        enumeration = self.enumeration()
-        enumeration["values"][0]["enabledTests"] = [
-            {"identifier": "JustMarkdownTests/Unit/testOnlyUnit()"}
-        ]
-        cases.append(enumeration)
-        for enumeration in cases:
-            with self.subTest(enumeration=enumeration), self.assertRaises(ValueError):
-                verify_ios.test_identifiers(enumeration)
-
-    def test_invalid_or_empty_shards_cannot_pass(self):
-        identifiers = verify_ios.test_identifiers(self.enumeration())
-        for suite, index, count in [
-            ("ui", -1, 4),
-            ("ui", 4, 4),
-            ("ui", 0, 0),
-            ("ui", 11, 12),
-            ("unknown", 0, 1),
-        ]:
-            with self.subTest(suite=suite, index=index, count=count), self.assertRaises(ValueError):
-                verify_ios.select_tests(identifiers, suite, index, count)
-
-    def test_prebuilt_products_require_one_run_specification(self):
+    def test_prebuilt_products_require_full_enabled_configuration_and_both_targets(self):
+        valid = self.metadata()
+        variants = []
+        other_plan = copy.deepcopy(valid)
+        other_plan["TestPlan"]["Name"] = "CI"
+        variants.append(other_plan)
+        disabled = copy.deepcopy(valid)
+        disabled["TestConfigurations"][0]["IsEnabled"] = False
+        variants.append(disabled)
+        missing_target = copy.deepcopy(valid)
+        missing_target["TestConfigurations"][0]["TestTargets"].pop()
+        variants.append(missing_target)
+        empty = copy.deepcopy(valid)
+        empty["TestConfigurations"] = []
+        variants.append(empty)
         with tempfile.TemporaryDirectory() as directory:
             products = Path(directory)
+            specification = products / "JustMarkdown_Full.xctestrun"
+            specification.write_bytes(plistlib.dumps(valid))
+            self.assertEqual(verify_ios.test_run_specification(products), specification)
+            for metadata in variants:
+                specification.write_bytes(plistlib.dumps(metadata))
+                with self.subTest(metadata=metadata), self.assertRaises(ValueError):
+                    verify_ios.test_run_specification(products)
+            specification.unlink()
             with self.assertRaises(ValueError):
                 verify_ios.test_run_specification(products)
-            first = products / "one.xctestrun"
-            first.touch()
-            self.assertEqual(verify_ios.test_run_specification(products), first)
-            (products / "two.xctestrun").touch()
+            specification.write_bytes(plistlib.dumps(valid))
+            (products / "second.xctestrun").write_bytes(plistlib.dumps(valid))
             with self.assertRaises(ValueError):
                 verify_ios.test_run_specification(products)
+
+    def summary(self, **updates):
+        return {
+            "totalTestCount": 126,
+            "passedTests": 126,
+            "failedTests": 0,
+            "skippedTests": 0,
+            "expectedFailures": 0,
+            **updates,
+        }
+
+    def tree(self, names):
+        return {
+            "testNodes": [
+                {
+                    "nodeType": "Test Plan",
+                    "children": [
+                        {
+                            "name": name,
+                            "nodeType": "UI test bundle"
+                            if name.endswith("UITests")
+                            else "Unit test bundle",
+                        }
+                        for name in names
+                    ],
+                }
+            ]
+        }
+
+    def test_summary_requires_actual_execution_of_every_requested_target(self):
+        for names in [
+            ["JustMarkdownTests", "JustMarkdownUITests"],
+            ["JustMarkdownTests"],
+            ["JustMarkdownUITests"],
+        ]:
+            outputs = [self.summary(), self.tree(names)]
+            with (
+                self.subTest(names=names),
+                patch.object(
+                    verify_ios,
+                    "run",
+                    side_effect=[
+                        subprocess.CompletedProcess([], 0, json.dumps(d)) for d in outputs
+                    ],
+                ),
+            ):
+                result = verify_ios.test_summary(
+                    Path("result.xcresult"), verify_ios.TEST_TARGETS.values()
+                )
+                self.assertEqual(result is not None, len(names) == 2)
+
+    def test_invalid_or_expected_failure_results_cannot_be_accepted(self):
+        for summary in [
+            self.summary(expectedFailures=1),
+            self.summary(passedTests="126"),
+            self.summary(skippedTests=-1),
+            self.summary(totalTestCount=True),
+        ]:
+            with (
+                self.subTest(summary=summary),
+                patch.object(
+                    verify_ios,
+                    "run",
+                    return_value=subprocess.CompletedProcess([], 0, json.dumps(summary)),
+                ),
+            ):
+                self.assertIsNone(
+                    verify_ios.test_summary(
+                        Path("result.xcresult"), verify_ios.TEST_TARGETS.values()
+                    )
+                )
+
+    def test_failures_skips_empty_results_and_failed_xcode_exit_are_failures(self):
+        for code, counts, expected in [
+            (0, self.summary(), True),
+            (1, self.summary(), False),
+            (0, self.summary(totalTestCount=0, passedTests=0), False),
+            (0, self.summary(passedTests=125, failedTests=1), False),
+            (0, self.summary(passedTests=125, skippedTests=1), False),
+            (0, None, False),
+        ]:
+            with (
+                self.subTest(code=code, counts=counts),
+                tempfile.TemporaryDirectory() as directory,
+                patch.object(verify_ios, "run"),
+                patch.object(verify_ios, "run_tests", return_value=code) as run_tests,
+                patch.object(verify_ios, "test_summary", return_value=counts),
+                patch.object(verify_ios, "failure_details"),
+            ):
+                result = verify_ios.verify_family(
+                    "iPhone",
+                    runtime={"name": "iOS 26.5", "identifier": "runtime"},
+                    devices=[{"name": "JustMarkdown iPhone", "udid": "phone", "state": "Booted"}],
+                    specification=Path("full.xctestrun"),
+                    output=Path(directory),
+                    suite="all",
+                    prefix="JustMarkdown",
+                    cancel=threading.Event(),
+                )
+                self.assertEqual(result["passed"], expected)
+                command = run_tests.call_args.args[0]
+                self.assertEqual(
+                    [arg for arg in command if arg.startswith("-only-testing:")],
+                    ["-only-testing:JustMarkdownTests", "-only-testing:JustMarkdownUITests"],
+                )
+                self.assertFalse(any(arg.startswith("-skip-testing:") for arg in command))
+
+    def test_families_run_concurrently_and_keep_both_results_when_one_fails(self):
+        barrier = threading.Barrier(2)
+
+        def execute(family, **options):
+            barrier.wait(timeout=3)
+            return {"family": family, "passed": family == "iPad"}
+
+        with patch.object(verify_ios, "verify_family", side_effect=execute) as execute_mock:
+            results = verify_ios.verify_families(["iPhone", "iPad"])
+        self.assertEqual(execute_mock.call_count, 2)
+        self.assertEqual(
+            results, [{"family": "iPhone", "passed": False}, {"family": "iPad", "passed": True}]
+        )
+
+    def test_infrastructure_failure_does_not_omit_the_other_family(self):
+        def execute(family, **options):
+            if family == "iPhone":
+                raise OSError("Simulator unavailable")
+            return {"family": family, "passed": True}
+
+        with patch.object(verify_ios, "verify_family", side_effect=execute):
+            results = verify_ios.verify_families(["iPhone", "iPad"])
+        self.assertEqual(len(results), 2)
+        self.assertFalse(results[0]["passed"])
+        self.assertTrue(results[1]["passed"])
+        self.assertIn("Simulator unavailable", results[0]["error"])
+
+    def test_cancellation_terminates_running_xcode_process(self):
+        cancel = threading.Event()
+        timer = threading.Timer(0.2, cancel.set)
+        with tempfile.TemporaryDirectory() as directory:
+            timer.start()
+            try:
+                code = verify_ios.run_tests(
+                    [sys.executable, "-c", "import time; time.sleep(30)"],
+                    Path(directory) / "cancel.log",
+                    cancel=cancel,
+                )
+            finally:
+                timer.cancel()
+        self.assertEqual(code, 130)
