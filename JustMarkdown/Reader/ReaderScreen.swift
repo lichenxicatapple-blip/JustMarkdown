@@ -377,15 +377,13 @@ struct ReaderScreen: View {
                         .accessibilityIdentifier("ModeToggle")
                         .accessibilityHidden(compact && !toolsExpanded)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                        Menu {
-                            Button("Model Settings", systemImage: "slider.horizontal.3") {
-                                presentModelSettings()
-                            }
-                        } label: {
-                            actionIcon("ellipsis", compact: compact)
-                        }
+                        ReaderMoreMenu(
+                            iconSize: compact ? ReaderDesign.compactFloatingIcon : ReaderDesign.floatingIcon,
+                            openModelSettings: presentModelSettings
+                        )
+                        .frame(width: ReaderDesign.hitTarget, height: ReaderDesign.hitTarget)
+                        .contentShape(Circle())
                         .modifier(ReaderGlassControl())
-                        .accessibilityLabel("More").accessibilityIdentifier("More")
                         .accessibilityFocused($focusedAction, equals: .more)
                         .accessibilityHidden(compact && !toolsExpanded)
                         .transition(.move(edge: .trailing).combined(with: .opacity))

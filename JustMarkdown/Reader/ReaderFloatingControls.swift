@@ -84,3 +84,45 @@ final class ReaderControlsSurface: UIView {
         return target === self ? nil : target
     }
 }
+
+/// Fixed reader actions use an eager menu so an in-flight touch keeps its target.
+struct ReaderMoreMenu: UIViewRepresentable {
+    var iconSize: CGFloat
+    var openModelSettings: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(openModelSettings: openModelSettings) }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.tintColor = .label
+        button.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        button.accessibilityLabel = String(localized: "More")
+        button.accessibilityIdentifier = "More"
+        button.showsMenuAsPrimaryAction = true
+        button.menu = UIMenu(children: [
+            UIAction(title: String(localized: "Model Settings"), image: UIImage(systemName: "slider.horizontal.3")) {
+                [weak coordinator = context.coordinator] _ in
+                coordinator?.openModelSettings()
+            }
+        ])
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        context.coordinator.openModelSettings = openModelSettings
+        if context.coordinator.iconSize != iconSize {
+            button.setPreferredSymbolConfiguration(
+                UIImage.SymbolConfiguration(pointSize: iconSize, weight: .regular), forImageIn: .normal)
+            context.coordinator.iconSize = iconSize
+        }
+        if button.isEnabled != context.environment.isEnabled { button.isEnabled = context.environment.isEnabled }
+    }
+
+    @MainActor
+    final class Coordinator {
+        var openModelSettings: () -> Void
+        var iconSize: CGFloat?
+
+        init(openModelSettings: @escaping () -> Void) { self.openModelSettings = openModelSettings }
+    }
+}

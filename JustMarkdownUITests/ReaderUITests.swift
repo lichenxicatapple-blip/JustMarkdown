@@ -363,6 +363,32 @@ final class ReaderUITests: XCTestCase {
         XCTAssertEqual(empty.label, "No recent documents")
     }
 
+    func testModelSettingsMenuReopensAfterSourceEditing() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--sample-document", "--reset-sample-document", "-AppleLanguages", "(zh-Hans)",
+            "-AppleLocale", "zh_CN",
+        ]
+        app.launch()
+        showTools(app)
+        let mode = app.buttons["ModeToggle"]
+        mode.tap()
+        let editor = app.textViews["SourceEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        editor.tap()
+        typeSource("menu check", into: editor)
+        showTools(app)
+        mode.tap()
+
+        for _ in 0..<3 {
+            showTools(app)
+            app.buttons["More"].tap()
+            app.buttons["模型设置"].tap()
+            XCTAssertTrue(app.textFields["ModelBaseURL"].waitForExistence(timeout: 5))
+            app.buttons["取消"].tap()
+        }
+    }
+
     func testReaderNavigationEditingSettingsAndRotation() throws {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

@@ -89,7 +89,7 @@ Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合�
 
 `ReaderViewport.swift` 集中管理原生视口。`ReaderContainer` 根据 UIKit 键盘布局指引的实际遮挡区域确定内容视口：仅覆盖容器整条底边的输入界面缩短正文，其他情况保持完整高度。`ReaderViewport` 将视口尺寸提交给 Web。SwiftUI 阅读画布延伸至底部；完整停靠键盘缩短内容视口，浮动键盘及实体键盘的局部输入浮条不触发整页底部留白。场景进入后台后，系统为快照生成的临时尺寸只影响外层容器，不触发正在阅读的 Web 文档重排；场景激活时按容器的最新尺寸布局。前台旋转与窗口调整正常更新视口，不重载文档或重建会话。
 
-`ReaderFloatingControls` 在原生子控制器中承载两种模式共享的 SwiftUI 操作组，通过独立的 `UIKeyboardLayoutGuide` 跟随浮动输入界面。Auto Layout 只调整操作组的位置，透明定位视图将组外触控交还正文。子宿主通过 UIKit 继承系统特征，显式传递当前 SwiftUI 动画事务，不整体覆盖子宿主的环境。展开与收起继续使用同一组件和动效参数。
+`ReaderFloatingControls` 在原生子控制器中承载两种模式共享的 SwiftUI 操作组，通过独立的 `UIKeyboardLayoutGuide` 跟随浮动输入界面。Auto Layout 只调整操作组的位置，透明定位视图将组外触控交还正文。子宿主通过 UIKit 继承系统特征，显式传递当前 SwiftUI 动画事务，不整体覆盖子宿主的环境。展开与收起继续使用同一组件和动效参数。固定的更多操作由 `ReaderMoreMenu` 使用 `UIButton` 与同步构建的 `UIMenu` 呈现；展示期间保留菜单对象，协调器单独更新动作回调，避免周围状态更新替换正在操作的菜单项。
 
 ## 文档访问与保存
 
