@@ -6,6 +6,18 @@ JustMarkdown 是面向 iPhone 和 iPad 的单文档 Markdown 阅读与编辑应�
 
 SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只读文档快照、目录和对话的富文本呈现。源码工作文本与撤销历史由原生层持有，Markdown、数学和图表渲染由离线 Web 组件复用；文件访问、凭据和模型请求保留在原生层。
 
+原生源码位于 `JustMarkdown/`，磁盘目录与 Xcode 分组保持一致。应用入口 `JustMarkdownApp.swift` 留在顶层，其余按职责组织；这些目录属于同一个 App target，不形成独立模块。
+
+| 目录 | 职责 |
+| --- | --- |
+| `Documents/` | 文档读写、资源授权、最近记录及其列表 |
+| `Reader/` | 阅读界面、会话协调、视口、WebKit 桥接及共享控件 |
+| `Editor/` | 原生源码编辑与撤销历史 |
+| `AI/` | 上下文、提示词、图片与编辑工具、模型协议、设置及原生对话输入 |
+| `Privacy/` | 原生隐私政策界面 |
+| `WebSource/` | 正文、目录与对话的 Web 呈现源文件 |
+| `Resources/` | 生成并打包的 Web、隐私政策及 Debug 样例资源 |
+
 ```mermaid
 flowchart LR
     UI[SwiftUI / UIKit] <--> Session[ReaderSession]
@@ -28,13 +40,13 @@ flowchart LR
 
 | 边界 | 主要实现 | 职责 |
 | --- | --- | --- |
-| 原生呈现与协调 | [ReaderScreen](../JustMarkdown/ReaderScreen.swift)、[ReaderSession](../JustMarkdown/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
-| WebKit 桥接与输入 | [ReaderWebView](../JustMarkdown/ReaderWebView.swift)、[NativeComposerHost](../JustMarkdown/NativeComposerHost.swift)、[ConversationInput](../JustMarkdown/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
-| 源码编辑与历史 | [SourceEditor](../JustMarkdown/SourceEditor.swift)、[SourceHistory](../JustMarkdown/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
-| 文档与授权 | [MarkdownDocument](../JustMarkdown/MarkdownDocument.swift)、[LocalResources](../JustMarkdown/LocalResources.swift)、[RecentDocuments](../JustMarkdown/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
+| 原生呈现与协调 | [ReaderScreen](../JustMarkdown/Reader/ReaderScreen.swift)、[ReaderSession](../JustMarkdown/Reader/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
+| WebKit 桥接与输入 | [ReaderWebView](../JustMarkdown/Reader/ReaderWebView.swift)、[NativeComposerHost](../JustMarkdown/AI/NativeComposerHost.swift)、[ConversationInput](../JustMarkdown/AI/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
+| 源码编辑与历史 | [SourceEditor](../JustMarkdown/Editor/SourceEditor.swift)、[SourceHistory](../JustMarkdown/Editor/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
+| 文档与授权 | [MarkdownDocument](../JustMarkdown/Documents/MarkdownDocument.swift)、[LocalResources](../JustMarkdown/Documents/LocalResources.swift)、[RecentDocuments](../JustMarkdown/Documents/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
 | 文档与对话呈现 | [WebSource](../JustMarkdown/WebSource/) | 解析、清理、排版、预览位置映射、富文本选段和对话状态 |
-| Agent 执行 | [AgentPrompt](../JustMarkdown/AgentPrompt.swift)、[AgentContextBuilder](../JustMarkdown/AgentContextBuilder.swift)、[AgentModelTransport](../JustMarkdown/AgentModelTransport.swift)、[AgentDocumentTools](../JustMarkdown/AgentDocumentTools.swift)、[AgentImages](../JustMarkdown/AgentImages.swift) | 模式提示词、请求快照、上下文版本、生成、工具执行与恢复 |
-| 供应商适配 | [ModelClient](../JustMarkdown/ModelClient.swift)、[ModelWireFormat](../JustMarkdown/ModelWireFormat.swift)、[ModelCatalog](../JustMarkdown/ModelCatalog.swift) | 协议编码、流解析、错误分类和模型目录缓存 |
+| Agent 执行 | [AgentPrompt](../JustMarkdown/AI/AgentPrompt.swift)、[AgentContextBuilder](../JustMarkdown/AI/AgentContextBuilder.swift)、[AgentModelTransport](../JustMarkdown/AI/AgentModelTransport.swift)、[AgentDocumentTools](../JustMarkdown/AI/AgentDocumentTools.swift)、[AgentImages](../JustMarkdown/AI/AgentImages.swift) | 模式提示词、请求快照、上下文版本、生成、工具执行与恢复 |
+| 供应商适配 | [ModelClient](../JustMarkdown/AI/ModelClient.swift)、[ModelWireFormat](../JustMarkdown/AI/ModelWireFormat.swift)、[ModelCatalog](../JustMarkdown/AI/ModelCatalog.swift) | 协议编码、流解析、错误分类和模型目录缓存 |
 
 ## 关键设计取舍
 
@@ -173,7 +185,7 @@ Responses 请求设置 `store:false` 并发送所需历史，不依赖服务器�
 | 维护源 | 打包或生成结果 |
 | --- | --- |
 | `WebSource/` 与 manifest 中的 Web 依赖 | `Resources/Web/`，包含脚本、样式、许可证及数学字体 |
-| [tokens.json](../design/tokens.json) | Web 样式和动效参数、`ReaderDesign.swift` 中的原生参数子集 |
+| [tokens.json](../design/tokens.json) | Web 样式和动效参数、`Reader/ReaderDesign.swift` 中的原生参数子集 |
 | [品牌母版与配色](../design/brand/README.md) | 统一的系统图标、首页矢量和导出资源 |
 | `vendor/` 中标为 `target: native` 的字体与许可 | Xcode 直接复制到 App 包，`UIAppFonts` 注册首页字体 |
 | `Localizable.xcstrings`、`InfoPlist.xcstrings` | 原生翻译和系统权限文案；同一 UI String Catalog 生成 Web 翻译 |

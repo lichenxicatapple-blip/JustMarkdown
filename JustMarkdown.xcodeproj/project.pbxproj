@@ -5,10 +5,45 @@
 	};
 	"objectVersion" = 77;
 	"objects" = {
+		"B9408B8DD9849BFB76AC24CD" = {
+			"isa" = "PBXGroup";
+			"children" = ("70BEBD418B69151CBB0001E8", "AC5F13BD83ADEDB81E93D094", "303CDBD47CF745448FA15B92", "2172C88FBB8C4C788FEE66D6");
+			"name" = "Documents";
+			"path" = "JustMarkdown/Documents";
+			"sourceTree" = "<group>";
+		};
+		"049E250450F7D1BA24E303F2" = {
+			"isa" = "PBXGroup";
+			"children" = ("BCC6FCC3E932E595BF99515F", "DC56C4439C3D456595CB76A2", "892B2E41ACAB9300E154E72318", "FDA62040CEE3AD5B798B01EE", "BB3EF24BC49856ED5299CA5F", "CD853267303494CB4ED32A7F", "F8979B91FC72FE9B258C1258");
+			"name" = "Reader";
+			"path" = "JustMarkdown/Reader";
+			"sourceTree" = "<group>";
+		};
+		"F2FE6D30852FDBD3E3662F65" = {
+			"isa" = "PBXGroup";
+			"children" = ("FE61EDD5C378BEF5CA586128", "B41F188CC89B4AE2E41B0707");
+			"name" = "Editor";
+			"path" = "JustMarkdown/Editor";
+			"sourceTree" = "<group>";
+		};
+		"4A6EDE7BBE25F25BF3568C5F" = {
+			"isa" = "PBXGroup";
+			"children" = ("28230E06A7041C46A98EC0F2", "9565B3CCADBF0EA01ADC5923", "54E723182B2E41ACAB9300E1", "F2D29855477EEB2EC9FA8F66", "7A840D9E3ECA797CF4C533D7", "866C1B029DE43981D28E0686", "BF55A37DE0778973A3CDC325", "00D374A9DF33AC9BFBFDC4E0", "DBA59413B62CDA0027990F39", "AB8BE131312F4399AF5CC7BE", "582DF03B6BC94682AF0F2271", "BEB36BF18DBFD4B7F0CED012", "D006C412AB81F53878AA1E96", "D9972678B557E39E2012BA9E", "CE081A97C56B9CD8DD33698E", "47640BD493BB7D4616EE00FA");
+			"name" = "AI";
+			"path" = "JustMarkdown/AI";
+			"sourceTree" = "<group>";
+		};
+		"1E713FB9637DCE0009A44349" = {
+			"isa" = "PBXGroup";
+			"children" = ("49AB56E596C0477DBEFF87F2");
+			"name" = "Privacy";
+			"path" = "JustMarkdown/Privacy";
+			"sourceTree" = "<group>";
+		};
 		"892B2E41ACAB9300E154E72318" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderImageMenu.swift";
+			"path" = "ReaderImageMenu.swift";
 			"sourceTree" = "<group>";
 		};
 		"892B2E41ACAB9300E254E72318" = {
@@ -18,7 +53,7 @@
 		"54E723182B2E41ACAB9300E1" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/AgentImages.swift";
+			"path" = "AgentImages.swift";
 			"sourceTree" = "<group>";
 		};
 		"54E723182B2E41ACAB9300E2" = {
@@ -29,7 +64,7 @@
 		"CD853267303494CB4ED32A7F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderViewport.swift";
+			"path" = "ReaderViewport.swift";
 			"sourceTree" = "<group>";
 		};
 		"48026A6F6C7F2104233E0B57" = {
@@ -156,7 +191,7 @@
 		"DC56C4439C3D456595CB76A2" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderFloatingControls.swift";
+			"path" = "ReaderFloatingControls.swift";
 			"sourceTree" = "<group>";
 		};
 		"4A1F35129E874BBDBE9D708F" = {
@@ -176,7 +211,7 @@
 		"B41F188CC89B4AE2E41B0707" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/SourceHistory.swift";
+			"path" = "SourceHistory.swift";
 			"sourceTree" = "<group>";
 		};
 		"A1DFFFF0E13FD64B11F0812B" = {
@@ -186,7 +221,7 @@
 		"FE61EDD5C378BEF5CA586128" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/SourceEditor.swift";
+			"path" = "SourceEditor.swift";
 			"sourceTree" = "<group>";
 		};
 		"F30D57272925A9A9146A5B90" = {
@@ -216,7 +251,7 @@
 		"49AB56E596C0477DBEFF87F2" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/PrivacyPolicyView.swift";
+			"path" = "PrivacyPolicyView.swift";
 			"sourceTree" = "<group>";
 		};
 		"AD647AEAA23041FD9884F935" = {
@@ -226,7 +261,7 @@
 		"582DF03B6BC94682AF0F2271" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelDataConsent.swift";
+			"path" = "ModelDataConsent.swift";
 			"sourceTree" = "<group>";
 		};
 		"9B9560F1A90F4066B5D46539" = {
@@ -276,7 +311,7 @@
 		"2172C88FBB8C4C788FEE66D6" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/RecentDocumentsView.swift";
+			"path" = "RecentDocumentsView.swift";
 			"sourceTree" = "<group>";
 		};
 		"8D84AB73C0FA4331BB9A2328" = {
@@ -286,7 +321,7 @@
 		"303CDBD47CF745448FA15B92" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/RecentDocuments.swift";
+			"path" = "RecentDocuments.swift";
 			"sourceTree" = "<group>";
 		};
 		"131442CC3FD54F0C9EDCE7AD" = {
@@ -296,7 +331,7 @@
 		"7A840D9E3ECA797CF4C533D7" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/AgentPrompt.swift";
+			"path" = "AgentPrompt.swift";
 			"sourceTree" = "<group>";
 		};
 		"6576A37D958ABF84871D89CF" = {
@@ -306,31 +341,31 @@
 		"28230E06A7041C46A98EC0F2" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/AgentContextBuilder.swift";
+			"path" = "AgentContextBuilder.swift";
 			"sourceTree" = "<group>";
 		};
 		"9565B3CCADBF0EA01ADC5923" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/AgentDocumentTools.swift";
+			"path" = "AgentDocumentTools.swift";
 			"sourceTree" = "<group>";
 		};
 		"F2D29855477EEB2EC9FA8F66" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/AgentModelTransport.swift";
+			"path" = "AgentModelTransport.swift";
 			"sourceTree" = "<group>";
 		};
 		"866C1B029DE43981D28E0686" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ConversationInput.swift";
+			"path" = "ConversationInput.swift";
 			"sourceTree" = "<group>";
 		};
 		"BF55A37DE0778973A3CDC325" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/DebugModelFixture.swift";
+			"path" = "DebugModelFixture.swift";
 			"sourceTree" = "<group>";
 		};
 		"D12D6E747B94D775632FE765" = {
@@ -342,85 +377,85 @@
 		"70BEBD418B69151CBB0001E8" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/LocalResources.swift";
+			"path" = "LocalResources.swift";
 			"sourceTree" = "<group>";
 		};
 		"AC5F13BD83ADEDB81E93D094" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/MarkdownDocument.swift";
+			"path" = "MarkdownDocument.swift";
 			"sourceTree" = "<group>";
 		};
 		"00D374A9DF33AC9BFBFDC4E0" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelCatalog.swift";
+			"path" = "ModelCatalog.swift";
 			"sourceTree" = "<group>";
 		};
 		"DBA59413B62CDA0027990F39" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelClient.swift";
+			"path" = "ModelClient.swift";
 			"sourceTree" = "<group>";
 		};
 		"AB8BE131312F4399AF5CC7BE" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelConnection.swift";
+			"path" = "ModelConnection.swift";
 			"sourceTree" = "<group>";
 		};
 		"BEB36BF18DBFD4B7F0CED012" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelSelectionView.swift";
+			"path" = "ModelSelectionView.swift";
 			"sourceTree" = "<group>";
 		};
 		"D006C412AB81F53878AA1E96" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelSettingsView.swift";
+			"path" = "ModelSettingsView.swift";
 			"sourceTree" = "<group>";
 		};
 		"D9972678B557E39E2012BA9E" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelTools.swift";
+			"path" = "ModelTools.swift";
 			"sourceTree" = "<group>";
 		};
 		"CE081A97C56B9CD8DD33698E" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ModelWireFormat.swift";
+			"path" = "ModelWireFormat.swift";
 			"sourceTree" = "<group>";
 		};
 		"47640BD493BB7D4616EE00FA" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/NativeComposerHost.swift";
+			"path" = "NativeComposerHost.swift";
 			"sourceTree" = "<group>";
 		};
 		"BCC6FCC3E932E595BF99515F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderDesign.swift";
+			"path" = "ReaderDesign.swift";
 			"sourceTree" = "<group>";
 		};
 		"FDA62040CEE3AD5B798B01EE" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderScreen.swift";
+			"path" = "ReaderScreen.swift";
 			"sourceTree" = "<group>";
 		};
 		"BB3EF24BC49856ED5299CA5F" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderSession.swift";
+			"path" = "ReaderSession.swift";
 			"sourceTree" = "<group>";
 		};
 		"F8979B91FC72FE9B258C1258" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
-			"path" = "JustMarkdown/ReaderWebView.swift";
+			"path" = "ReaderWebView.swift";
 			"sourceTree" = "<group>";
 		};
 		"5C00D375ECE04423CD3656E9" = {
@@ -564,7 +599,7 @@
 		"3A2A88DEEFF3D1D23E496597" = {
 			"isa" = "PBXGroup";
 			"name" = "JustMarkdown";
-			"children" = ("892B2E41ACAB9300E154E72318", "54E723182B2E41ACAB9300E1", "7A840D9E3ECA797CF4C533D7", "DC56C4439C3D456595CB76A2", "B41F188CC89B4AE2E41B0707", "FE61EDD5C378BEF5CA586128", "26C90818DA6D432687EC7534", "49AB56E596C0477DBEFF87F2", "582DF03B6BC94682AF0F2271", "2172C88FBB8C4C788FEE66D6", "303CDBD47CF745448FA15B92", "28230E06A7041C46A98EC0F2", "9565B3CCADBF0EA01ADC5923", "F2D29855477EEB2EC9FA8F66", "866C1B029DE43981D28E0686", "BF55A37DE0778973A3CDC325", "D12D6E747B94D775632FE765", "70BEBD418B69151CBB0001E8", "AC5F13BD83ADEDB81E93D094", "00D374A9DF33AC9BFBFDC4E0", "DBA59413B62CDA0027990F39", "AB8BE131312F4399AF5CC7BE", "BEB36BF18DBFD4B7F0CED012", "D006C412AB81F53878AA1E96", "D9972678B557E39E2012BA9E", "CE081A97C56B9CD8DD33698E", "47640BD493BB7D4616EE00FA", "BCC6FCC3E932E595BF99515F", "FDA62040CEE3AD5B798B01EE", "BB3EF24BC49856ED5299CA5F", "F8979B91FC72FE9B258C1258", "5C00D375ECE04423CD3656E9", "A029D8A244F299CC787A5081", "5EEB314C9FFFDA68D02EA31C", "49C9185D88A70CD0DB01D41A", "97D539A62B20BCE7B3196C48", "79A506B8C2D6409CB4310E11", "79A506B8C2D6409CB4310E12", "4D4310404624E719957C7B19", "20B5CBF8DA31AD3F6570D082", "68910E367482B922FCD5138D", "91E4F62115E9BFE9C5BCCBF8", "CD853267303494CB4ED32A7F");
+			"children" = ("D12D6E747B94D775632FE765", "B9408B8DD9849BFB76AC24CD", "049E250450F7D1BA24E303F2", "F2FE6D30852FDBD3E3662F65", "4A6EDE7BBE25F25BF3568C5F", "1E713FB9637DCE0009A44349", "26C90818DA6D432687EC7534", "5C00D375ECE04423CD3656E9", "A029D8A244F299CC787A5081", "5EEB314C9FFFDA68D02EA31C", "49C9185D88A70CD0DB01D41A", "97D539A62B20BCE7B3196C48", "79A506B8C2D6409CB4310E11", "79A506B8C2D6409CB4310E12", "4D4310404624E719957C7B19", "20B5CBF8DA31AD3F6570D082", "68910E367482B922FCD5138D", "91E4F62115E9BFE9C5BCCBF8");
 			"sourceTree" = "<group>";
 		};
 		"9F768C3DE1053D8E7C6B3FF8" = {

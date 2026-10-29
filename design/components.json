@@ -6,7 +6,7 @@
     {
       "id": "ReaderScreen",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift"
       ],
       "owns": [
         "Home",
@@ -27,7 +27,7 @@
     {
       "id": "Home",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift"
       ],
       "owns": [
         "RecentDocuments",
@@ -41,8 +41,8 @@
     {
       "id": "RecentDocuments",
       "nativeOwners": [
-        "JustMarkdown/RecentDocumentsView.swift",
-        "JustMarkdown/RecentDocuments.swift"
+        "JustMarkdown/Documents/RecentDocumentsView.swift",
+        "JustMarkdown/Documents/RecentDocuments.swift"
       ],
       "invariants": [
         "The sheet and popover share the same list and successfully opened original-file records."
@@ -52,9 +52,9 @@
     {
       "id": "DocumentSurface",
       "nativeOwners": [
-        "JustMarkdown/ReaderWebView.swift",
-        "JustMarkdown/ReaderViewport.swift",
-        "JustMarkdown/SourceEditor.swift"
+        "JustMarkdown/Reader/ReaderWebView.swift",
+        "JustMarkdown/Reader/ReaderViewport.swift",
+        "JustMarkdown/Editor/SourceEditor.swift"
       ],
       "webOwners": [
         "JustMarkdown/WebSource/reader.html",
@@ -79,7 +79,7 @@
     {
       "id": "OutlineNavigator",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift"
       ],
       "webOwners": [
         "JustMarkdown/WebSource/reader.js",
@@ -111,8 +111,8 @@
     {
       "id": "FloatingActions",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift",
-        "JustMarkdown/ReaderFloatingControls.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift",
+        "JustMarkdown/Reader/ReaderFloatingControls.swift"
       ],
       "invariants": [
         "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group.",
@@ -123,7 +123,7 @@
     {
       "id": "SelectionQuestionMenu",
       "nativeOwners": [
-        "JustMarkdown/ReaderWebView.swift"
+        "JustMarkdown/Reader/ReaderWebView.swift"
       ],
       "uses": [
         "QuestionPanel"
@@ -172,8 +172,8 @@
     {
       "id": "ConversationComposer",
       "nativeOwners": [
-        "JustMarkdown/NativeComposerHost.swift",
-        "JustMarkdown/ConversationInput.swift"
+        "JustMarkdown/AI/NativeComposerHost.swift",
+        "JustMarkdown/AI/ConversationInput.swift"
       ],
       "webOwners": [
         "JustMarkdown/WebSource/native-agent.js",
@@ -265,8 +265,8 @@
     {
       "id": "ModelSettings",
       "nativeOwners": [
-        "JustMarkdown/ModelSettingsView.swift",
-        "JustMarkdown/ModelSelectionView.swift"
+        "JustMarkdown/AI/ModelSettingsView.swift",
+        "JustMarkdown/AI/ModelSelectionView.swift"
       ],
       "invariants": [
         "One native modal owns settings navigation and blocks the underlying reader."
@@ -276,8 +276,8 @@
     {
       "id": "ModelConfigurationPrompt",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift",
-        "JustMarkdown/ReaderSession.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift",
+        "JustMarkdown/Reader/ReaderSession.swift"
       ],
       "invariants": [
         "Configuration resumes the original AI entry only for the same document and never submits a question."
@@ -287,8 +287,8 @@
     {
       "id": "DocumentClose",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift",
-        "JustMarkdown/ReaderSession.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift",
+        "JustMarkdown/Reader/ReaderSession.swift"
       ],
       "invariants": [
         "Returning home follows successful document closure or explicit discard after a failed save."
@@ -298,8 +298,8 @@
     {
       "id": "SourceHistory",
       "nativeOwners": [
-        "JustMarkdown/SourceHistory.swift",
-        "JustMarkdown/SourceEditor.swift"
+        "JustMarkdown/Editor/SourceHistory.swift",
+        "JustMarkdown/Editor/SourceEditor.swift"
       ],
       "invariants": [
         "The native document model owns one working text and one undo history for typing, composition, paste, AI transactions, system editing actions and touch controls."
@@ -309,7 +309,7 @@
     {
       "id": "PrivacyPolicy",
       "nativeOwners": [
-        "JustMarkdown/PrivacyPolicyView.swift"
+        "JustMarkdown/Privacy/PrivacyPolicyView.swift"
       ],
       "invariants": [
         "One quiet homepage entry presents the bundled policy with native text, lists, tables and scrolling in the App language."
@@ -319,9 +319,9 @@
     {
       "id": "ModelDataConsentPrompt",
       "nativeOwners": [
-        "JustMarkdown/ReaderScreen.swift",
-        "JustMarkdown/ReaderSession.swift",
-        "JustMarkdown/ModelDataConsent.swift"
+        "JustMarkdown/Reader/ReaderScreen.swift",
+        "JustMarkdown/Reader/ReaderSession.swift",
+        "JustMarkdown/AI/ModelDataConsent.swift"
       ],
       "invariants": [
         "The first send to each service requires explicit native approval; cancellation preserves the draft and reference without starting a request."
@@ -331,7 +331,7 @@
     {
       "id": "ImageActionMenu",
       "nativeOwners": [
-        "JustMarkdown/ReaderImageMenu.swift"
+        "JustMarkdown/Reader/ReaderImageMenu.swift"
       ],
       "webOwners": [
         "JustMarkdown/WebSource/native-bridge.js",

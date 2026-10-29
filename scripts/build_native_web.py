@@ -384,7 +384,7 @@ def main():
             "Web": DEST,
             "Privacy": DEST.parent / "Privacy",
             "Sample": DEST.parent / "Sample",
-            "ReaderDesign.swift": ROOT / "JustMarkdown/ReaderDesign.swift",
+            "ReaderDesign.swift": ROOT / "JustMarkdown/Reader/ReaderDesign.swift",
         }
         if args.check:
             stale = []

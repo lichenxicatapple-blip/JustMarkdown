@@ -35,7 +35,7 @@ Maintain requirements in these sources rather than duplicating the product speci
 ## Editing and verification
 
 - Edit formal rendering sources in `JustMarkdown/WebSource/`, fixed dependencies in `vendor/`, and the long fixture in `JustMarkdownTests/Fixtures/ReadingGuide/`.
-- Run `python3 scripts/build_native_web.py`, then `--check`. Commit generated `Resources/Web`, `Resources/Sample` and `ReaderDesign.swift` with their sources; never hand-edit only the outputs or depend on prototype/demo artifacts.
+- Run `python3 scripts/build_native_web.py`, then `--check`. Commit generated `Resources/Web`, `Resources/Sample` and `Reader/ReaderDesign.swift` with their sources; never hand-edit only the outputs or depend on prototype/demo artifacts.
 - Maintain the checked-in Xcode project and shared scheme directly. Check target membership and build phases when adding files. Release excludes the Debug fixture and includes `PrivacyInfo.xcprivacy`.
 - Follow [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md). Verify affected behavior on both simulator families; report actual checks and remaining limits. Browser checks, simulated transport, simulator builds and CI configuration do not prove native device behavior, real provider success or a hosted CI pass.
 - Reproduce bugs and gather evidence before choosing a fix. Distinguish a hypothesis from a confirmed cause; do not add guessed delays. Outline feedback must not combine WebKit's default gray tap highlight with the current-row style.

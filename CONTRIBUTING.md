@@ -18,6 +18,8 @@
 
 使用 Xcode 打开 `JustMarkdown.xcodeproj`，选择 JustMarkdown scheme 构建运行。工程与共享 scheme 直接维护并提交；新增文件时核对目标归属、编译及资源阶段。
 
+原生源码按职责放入 `JustMarkdown/` 下的目录，划分见[架构设计](docs/native-architecture.md#系统组成)。移动或新增文件时，同步维护磁盘目录、Xcode 分组、[组件登记](design/components.json)与文档链接；生成文件还需更新生成器的目标路径。
+
 修改 WebSource、设计参数、品牌资源、离线依赖或阅读夹具后执行：
 
 ```sh
@@ -25,7 +27,7 @@ python3 scripts/build_native_web.py
 python3 scripts/build_native_web.py --check
 ```
 
-提交生成的 `Resources/Web`、`Resources/Sample`、`ReaderDesign.swift` 和品牌资源，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌母版、配色与生成位置见[品牌说明](design/brand/README.md)。
+提交生成的 `Resources/Web`、`Resources/Sample`、`Reader/ReaderDesign.swift` 和品牌资源，不要直接修改生成文件。依赖更新见[离线依赖](vendor/README.md)，品牌母版、配色与生成位置见[品牌说明](design/brand/README.md)。
 
 `python3 scripts/build_native_web.py --check --audit-dependencies` 额外联网检查固定 npm 版本的公开漏洞公告，CI 使用同一入口；普通构建和 `--check` 不联网。
 
