@@ -16,6 +16,7 @@ struct AgentToolExecution: Sendable {
     let output: String
     var change: AgentDocumentChange?
     var revision: String?
+    var images: [ModelImage] = []
 }
 
 @MainActor
@@ -36,14 +37,14 @@ final class AgentDocumentTools {
 
     nonisolated static let definitions = [
         ModelTool(
-            name: "read_document", description: "读取当前打开文档的最新 Markdown 源码和版本。没有路径参数，不能读取其他文件。",
+            name: "read_document", description: "读取当前 Markdown 文档的最新全文和 revision。没有路径参数，不能读取其他文件。",
             parameters: #"{"type":"object","properties":{},"required":[],"additionalProperties":false}"#),
         ModelTool(
             name: "edit_document",
             description:
-                "按用户明确的编辑要求修改当前文档。一次提交同一版本中所有互不重叠的修改。before 必须是唯一、逐字一致的原文，after 为完整替换文本。插入内容需保留原文锚点；仅空文档可用空 before。成功即写回文件，无须另行请求应用。",
+                "按用户明确的编辑要求修改当前文档。一次提交同一版本中所有互不重叠的修改。before 必须是唯一、逐字一致的原文，after 为完整替换文本。插入内容需保留原文锚点；仅空文档可用空 before。修改立即应用并尝试保存，以工具返回结果为准，无须另行请求应用。",
             parameters:
-                #"{"type":"object","properties":{"revision":{"type":"string","description":"最新源码的 revision；内容变化后须重新读取。"},"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"before":{"type":"string"},"after":{"type":"string"}},"required":["before","after"],"additionalProperties":false}}},"required":["revision","edits"],"additionalProperties":false}"#
+                #"{"type":"object","properties":{"revision":{"type":"string","description":"当前文档全文的 revision；内容变化后须重新读取。"},"edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{"before":{"type":"string"},"after":{"type":"string"}},"required":["before","after"],"additionalProperties":false}}},"required":["revision","edits"],"additionalProperties":false}"#
         ),
     ]
 
@@ -61,7 +62,7 @@ final class AgentDocumentTools {
             guard let session, session.documentToken == token, session.document != nil,
                 !session.isClosingDocument
             else { return result(["error": "document_closed"]) }
-            guard session.mode == "source" else { return result(["error": "read_only", "message": "请切换到源码后修改。"]) }
+            guard session.mode == "source" else { return result(["error": "read_only", "message": "请切换到源码模式后再修改。"]) }
             let current = try currentText(session, token: token)
             switch call.name {
             case "read_document":
@@ -122,7 +123,7 @@ final class AgentDocumentTools {
                 session.documentToken == token, !session.isClosingDocument
             else { return ["error": "stale", "message": String(localized: "This edit can no longer be undone.")] }
             guard session.mode == "source" else {
-                return ["error": "read_only", "message": String(localized: "Switch to source view to undo this edit.")]
+                return ["error": "read_only", "message": String(localized: "Switch to source mode to undo this edit.")]
             }
             let current = try currentText(session, token: token)
             guard current == record.after else {

@@ -75,9 +75,7 @@ struct ModelSettingsView: View {
                         }
                     }
                 } footer: {
-                    Text(
-                        "Your API key is stored in this device’s Keychain. Asking a question sends the current document and conversation to your configured service."
-                    )
+                    Text("Your API key is stored only in this device’s Keychain.")
                 }
                 if let error { Section { Text(error).foregroundStyle(.red) } }
             }

@@ -84,6 +84,7 @@ final class DocumentTests: XCTestCase {
         let document = try XCTUnwrap(session.document)
         session.sourceChanged("# Saved before closing\n", token: token)
         session.agentOpen = true
+        session.sourceFocused = true
         session.outlineExpanded = true
         session.hasOutline = true
         await session.closeDocument()
@@ -91,6 +92,7 @@ final class DocumentTests: XCTestCase {
         XCTAssertNotEqual(session.documentToken, token)
         XCTAssertTrue(document.documentState.contains(.closed))
         XCTAssertFalse(session.agentOpen)
+        XCTAssertFalse(session.sourceFocused)
         XCTAssertFalse(session.outlineExpanded)
         XCTAssertFalse(session.hasOutline)
         XCTAssertFalse(session.closeSaveFailed)

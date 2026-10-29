@@ -2,36 +2,35 @@ import Foundation
 
 enum ModelWireFormat {
     static func requestBody(_ configuration: ModelConfiguration, messages: [ChatMessage]) throws -> Data {
-        let model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch configuration.apiProtocol {
-        case .chatCompletions:
-            struct Body: Encodable {
-                let model: String
-                let messages: [ChatMessage]
-                let stream = true
-            }
-            return try encode(Body(model: model, messages: messages))
-        case .responses:
-            struct Body: Encodable {
-                let model: String
-                let instructions: String
-                let input: [ChatMessage]
-                let stream = true
-                let store = false
-            }
-            return try encode(
-                Body(
-                    model: model,
-                    instructions: messages.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n"),
-                    input: messages.filter { $0.role != "system" }))
+        let responses = configuration.apiProtocol == .responses
+        var body: [String: Any] = [
+            "model": configuration.model.trimmingCharacters(in: .whitespacesAndNewlines), "stream": true,
+            responses ? "input" : "messages": messages.filter { !responses || $0.role != "system" }
+                .map { message($0, api: configuration.apiProtocol) },
+        ]
+        if responses {
+            body["instructions"] = messages.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n")
+            body["store"] = false
         }
+        return try JSONSerialization.data(withJSONObject: body, options: .sortedKeys)
     }
 
-    private static func encode(_ value: some Encodable) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.keyEncodingStrategy = .convertToSnakeCase
-        encoder.outputFormatting = .sortedKeys
-        return try encoder.encode(value)
+    static func message(_ value: ChatMessage, api: ModelAPIProtocol) -> [String: Any] {
+        ["role": value.role, "content": content(value.content, images: value.images, api: api)]
+    }
+
+    static func content(_ text: String, images: [ModelImage], api: ModelAPIProtocol) -> Any {
+        guard !images.isEmpty else { return text }
+        let responses = api == .responses
+        var parts: [[String: Any]] = [["type": responses ? "input_text" : "text", "text": text]]
+        for image in images {
+            parts.append(["type": responses ? "input_text" : "text", "text": "imageID: " + image.id])
+            parts.append(
+                responses
+                    ? ["type": "input_image", "image_url": image.dataURL, "detail": "auto"]
+                    : ["type": "image_url", "image_url": ["url": image.dataURL, "detail": "auto"]])
+        }
+        return parts
     }
 
     static func object(_ data: Data) throws -> [String: Any] {

@@ -35,7 +35,7 @@ struct ReaderScreen: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
+        GeometryReader { _ in
             ZStack {
                 if session.document == nil {
                     welcome
@@ -60,7 +60,7 @@ struct ReaderScreen: View {
                         if !session.rendererReady { ProgressView().accessibilityLabel("Formatting document") }
                     }
                     .overlay(alignment: .topLeading) {
-                        if session.mode == "preview" && session.hasOutline && !session.agentModalActive {
+                        if session.mode == "preview" && session.hasOutline {
                             Button {
                                 session.toggleOutline()
                             } label: {
@@ -89,8 +89,7 @@ struct ReaderScreen: View {
                             .modifier(ReaderGlassControl()).foregroundStyle(.secondary)
                             .padding(
                                 .trailing,
-                                session.agentOpen && geometry.size.width >= 900
-                                    ? ReaderDesign.agentWidth + 2 * ReaderDesign.floatingInset : 8
+                                session.agentReservedWidth + 8
                             )
                             .padding(.top, ReaderDesign.floatingInset)
                             .accessibilityLabel("Close document")
@@ -100,16 +99,14 @@ struct ReaderScreen: View {
                     .overlay(alignment: .bottomTrailing) {
                         if !session.agentModalActive {
                             ReaderFloatingControls(
-                                trailingInset: session.agentOpen && geometry.size.width >= 900
-                                    ? ReaderDesign.agentWidth + 2 * ReaderDesign.floatingInset
-                                    : ReaderDesign.floatingInset
+                                trailingInset: session.agentReservedWidth + ReaderDesign.floatingInset
                             ) { floatingActions }
                             .ignoresSafeArea(.all, edges: .bottom)
                             .animation(toolsAnimation, value: toolsExpanded)
                             .animation(toolsAnimation, value: compactTools)
                             .animation(
                                 reduceMotion ? nil : .easeOut(duration: ReaderDesign.agentDuration),
-                                value: session.agentOpen)
+                                value: session.agentReservedWidth)
                         }
                     }
                     .allowsHitTesting(!session.isClosingDocument)
@@ -213,7 +210,7 @@ struct ReaderScreen: View {
                 .accessibilityIdentifier("AllowModelDataSharing")
         } message: {
             Text(
-                "When you use AI, the full current document, your questions, and this conversation will be sent to \(session.dataSharingServiceAddress).\n\nOnce you allow this, you won’t be asked again for this service."
+                "When you use AI, the full current document, your questions, this conversation, and images you select or the model reads will be sent to \(session.dataSharingServiceAddress).\n\nOnce you allow this, you won’t be asked again for this service."
             )
         }
         .alert("Unable to Save Document", isPresented: $session.closeSaveFailed) {
@@ -375,7 +372,7 @@ struct ReaderScreen: View {
                         .modifier(ReaderGlassControl())
                         .accessibilityLabel(
                             session.mode == "source"
-                                ? String(localized: "Switch to preview") : String(localized: "Switch to source")
+                                ? String(localized: "Switch to preview") : String(localized: "Switch to source mode")
                         )
                         .accessibilityIdentifier("ModeToggle")
                         .accessibilityHidden(compact && !toolsExpanded)

@@ -33,7 +33,6 @@ def reader_design(spec):
         "hitTarget": "size.hitTarget",
         "floatingIcon": "size.floatingIcon",
         "compactFloatingIcon": "size.compactFloatingIcon",
-        "agentWidth": "size.agentWidth",
         "floatingGap": "space.floatingGap",
         "floatingInset": "space.floatingInset",
         "outlineIcon": "size.outlineIcon",

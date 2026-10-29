@@ -42,16 +42,22 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
-    private func navigationReader() async throws -> (ReaderSession, ReaderBridge, UIWindow, URL) {
+    private func navigationReader(markdown: String? = nil) async throws -> (ReaderSession, ReaderBridge, UIWindow, URL)
+    {
         let session = ReaderSession(defaults: UserDefaults(suiteName: UUID().uuidString)!)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let text =
-            "# Navigation\n\n"
-            + (1...60).map { index in
-                "## Section \(index)\n\n" + String(repeating: "Paragraph content for navigation.\n\n", count: 18)
-                    + (index == 60 ? "### Detail 60\n\nFinal content.\n" : "")
-            }.joined(separator: "\n")
+        let text: String
+        if let markdown {
+            text = markdown
+        } else {
+            text =
+                "# Navigation\n\n"
+                + (1...60).map { index in
+                    "## Section \(index)\n\n" + String(repeating: "Paragraph content for navigation.\n\n", count: 18)
+                        + (index == 60 ? "### Detail 60\n\nFinal content.\n" : "")
+                }.joined(separator: "\n")
+        }
         let url = root.appendingPathComponent("navigation.md")
         try Data(text.utf8).write(to: url)
         await session.grant(root)
@@ -131,6 +137,8 @@ final class WebReaderTests: XCTestCase {
         _ = try await bridge.call("toggleMode")
         try await waitForMode("source", bridge: bridge)
         let editor = bridge.sourceEditor.textView
+        XCTAssertTrue(editor.superview === viewport)
+        XCTAssertFalse(editor.isDescendant(of: bridge.webView))
         func layoutFits() -> Bool {
             window.layoutIfNeeded()
             let canvas = container.convert(container.bounds, to: window)
@@ -410,6 +418,156 @@ final class WebReaderTests: XCTestCase {
     }
 
     @MainActor
+    func testDocumentSectionLinkResolvesNumberedChineseHeadingAndScrollsWithoutNavigation() async throws {
+        let markdown =
+            "# Document\n\n[头部裁剪逻辑](#432-头部裁剪)\n\n"
+            + String(repeating: "Reading content before the target.\n\n", count: 45)
+            + "#### 4.3.2 头部裁剪\n\n"
+            + String(repeating: "Reading content after the target.\n\n", count: 30)
+        let (session, bridge, window, root) = try await navigationReader(markdown: markdown)
+        defer {
+            bridge.detach()
+            window.isHidden = true
+            try? FileManager.default.removeItem(at: root)
+        }
+        let resolved =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                (() => {
+                  const article = document.querySelector('.mdv-article');
+                  const link = article.querySelector('a[href]');
+                  const target = document.getElementById(decodeURIComponent(link.getAttribute('href').slice(1)));
+                  return { text: target?.textContent || '', headingID: article.querySelector('h4').id,
+                    href: link.getAttribute('href') };
+                })()
+                """) as? [String: String]
+        XCTAssertEqual(resolved?["text"], "4.3.2 头部裁剪", "Unresolved section link: \(resolved ?? [:])")
+        guard resolved?["text"] == "4.3.2 头部裁剪" else { return }
+        let originalURL = bridge.webView.url
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const article = document.querySelector('.mdv-article');
+                const original = article.firstElementChild;
+                const link = article.querySelector('a[href]');
+                const target = article.querySelector('h4');
+                const expectedY = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+                const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+                link.dispatchEvent(click);
+                await new Promise(resolve => {
+                  const started = performance.now();
+                  const frame = () => {
+                    if (Math.abs(target.getBoundingClientRect().top - expectedY) < 2 || performance.now() - started > 2500) resolve();
+                    else requestAnimationFrame(frame);
+                  };
+                  requestAnimationFrame(frame);
+                });
+                return { prevented: click.defaultPrevented, sameContent: article.firstElementChild === original,
+                  targetY: target.getBoundingClientRect().top, expectedY, scrollY: window.scrollY };
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Any]
+        XCTAssertEqual(result?["prevented"] as? Bool, true)
+        XCTAssertEqual(result?["sameContent"] as? Bool, true)
+        XCTAssertGreaterThan(result?["scrollY"] as? Double ?? 0, 500)
+        XCTAssertEqual(
+            result?["targetY"] as? Double ?? .infinity, try XCTUnwrap(result?["expectedY"] as? Double), accuracy: 2)
+        XCTAssertEqual(bridge.webView.url, originalURL)
+        XCTAssertEqual(session.document?.text, markdown)
+    }
+
+    @MainActor
+    func testSectionLinksPreserveExplicitTargetsEncodedFragmentsDuplicatesAndFootnotes() async throws {
+        let markdown = """
+            # Document title
+
+            [Title](#document-title)
+            [First](#same)
+            [Second](#same-1)
+            [Collision](#same-1-1)
+            [Unicode](#café-κόσμος-你好)
+            [Explicit](#custom-target)
+            [Reserved](#reserved-1)
+            [Percent](#literal%252F)
+            [After empty heading](#heading-9)
+            [Missing](#missing-target)
+
+            ## Same
+
+            First paragraph.
+
+            ## Same
+
+            Second paragraph.
+
+            ## Same-1
+
+            Collision paragraph.
+
+            ## **Café** `ΚΌΣΜΟΣ` 你好!
+
+            Unicode paragraph.
+
+            <h2 id="custom-target">Explicit target</h2>
+            <h2 id="reserved">Explicit reservation</h2>
+
+            ## Reserved
+
+            <h2 id="literal%2F">Literal percent target</h2>
+
+            ##
+
+            ## Heading-9
+
+            Footnote reference.[^note]
+
+            [^note]: Footnote content.
+            """
+        let (_, bridge, window, root) = try await navigationReader(markdown: markdown)
+        defer {
+            bridge.detach()
+            window.isHidden = true
+            try? FileManager.default.removeItem(at: root)
+        }
+        let result =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                (() => {
+                  const article = document.querySelector('.mdv-article');
+                  const targets = [...article.querySelectorAll('a[href^="#"]')].map(link => {
+                    const target = document.getElementById(decodeURIComponent(link.getAttribute('href').slice(1)));
+                    return { label: link.textContent, text: target?.textContent.trim() || '',
+                      found: !!target && article.contains(target) };
+                  });
+                  const missing = [...article.querySelectorAll('a')].find(link => link.textContent === 'Missing');
+                  const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+                  missing.dispatchEvent(click);
+                  return { targets, ids: [...article.querySelectorAll('[id]')].map(element => element.id),
+                    missingPrevented: click.defaultPrevented };
+                })()
+                """) as? [String: Any]
+        let targets = try XCTUnwrap(result?["targets"] as? [[String: Any]])
+        for (label, text) in [
+            "Title": "Document title", "First": "Same", "Second": "Same", "Collision": "Same-1",
+            "Unicode": "Café ΚΌΣΜΟΣ 你好!", "Explicit": "Explicit target", "Reserved": "Reserved",
+            "Percent": "Literal percent target",
+            "After empty heading": "Heading-9",
+        ] {
+            let target = try XCTUnwrap(targets.first { $0["label"] as? String == label })
+            XCTAssertEqual(target["text"] as? String, text, label)
+            XCTAssertEqual(target["found"] as? Bool, true, label)
+        }
+        let ids = try XCTUnwrap(result?["ids"] as? [String])
+        XCTAssertEqual(
+            Set(ids).count, ids.count, "Generated targets must not collide with headings or explicit HTML IDs")
+        XCTAssertEqual(
+            targets.filter { $0["found"] as? Bool != true }.count, 1,
+            "Only the intentionally missing link is unresolved")
+        XCTAssertEqual(
+            result?["missingPrevented"] as? Bool, true, "A missing fragment must not navigate away from the reader")
+        let status = try await diagnostics(bridge)
+        XCTAssertEqual(status["source"] as? String, markdown)
+    }
+
+    @MainActor
     func testOutlineAvailabilityFollowsDocumentEditsAndPreservesEmptyHeadings() async throws {
         let (session, bridge, window, root) = try await navigationReader()
         defer {
@@ -418,8 +576,16 @@ final class WebReaderTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
         XCTAssertTrue(session.hasOutline)
+        let originalHeadings = try await diagnostics(bridge)["headings"] as? [String]
+        XCTAssertEqual(originalHeadings?.first, "Navigation", "The leading H1 belongs in the outline")
+        let titleOnly = "# Document title\n\nReading content.\n"
+        _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: titleOnly)
+        try await waitUntil {
+            try await self.diagnostics(bridge)["headings"] as? [String] == ["Document title"]
+        }
+        XCTAssertTrue(session.hasOutline, "A single H1 is still a document heading")
         for markdown in [
-            "", "Plain reading content.\n", "# Document title\n\nReading content.\n",
+            "", "Plain reading content.\n",
             "```markdown\n## This is code, not a heading\n```\n",
         ] {
             _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: markdown)
@@ -531,7 +697,8 @@ final class WebReaderTests: XCTestCase {
             """
             const body = document.querySelector('.mdv-outline-body');
             const reader = document.querySelector('.mdv-article');
-            const links = [...document.querySelectorAll('[data-toc-target]')];
+            const links = [...reader.querySelectorAll('h2,h3')].map(heading =>
+              document.querySelector(`[data-toc-target="${CSS.escape(heading.id)}"]`));
             const headings = links.map(link => document.getElementById(link.dataset.tocTarget));
             const frame = () => new Promise(requestAnimationFrame);
             const settle = async (ready = () => true) => {
@@ -592,6 +759,7 @@ final class WebReaderTests: XCTestCase {
             window.JustMarkdown.toggleOutline(); window.JustMarkdown.toggleOutline();
             await settle();
             const reopened = measure();
+            reader.dispatchEvent(new WheelEvent('wheel', { deltaY: 200, bubbles: true }));
             const end = await readAt(headings.length - 1);
             const start = await readAt(0);
             const query = window.readerTestMotion;
@@ -619,7 +787,7 @@ final class WebReaderTests: XCTestCase {
         attachment.lifetime = .keepAlways
         add(attachment)
         for (name, chapter) in [
-            ("centered", "Section 18"), ("resumed", "Section 21"), ("rapid", "Section 30"), ("reopened", "Section 30"),
+            ("centered", "Section 18"), ("resumed", "Section 21"), ("rapid", "Section 30"),
         ] {
             let state = try XCTUnwrap(probe[name] as? [String: Any])
             XCTAssertEqual(state["current"] as? String, chapter, name)
@@ -636,6 +804,10 @@ final class WebReaderTests: XCTestCase {
                 state["offset"] as? Double ?? .infinity, 0, accuracy: 1, "Manual browsing must remain in control")
         }
         let reopened = try XCTUnwrap(probe["reopened"] as? [String: Any])
+        XCTAssertEqual(reopened["current"] as? String, "Section 30")
+        XCTAssertEqual(
+            reopened["offset"] as? Double ?? .infinity, 0, accuracy: 1,
+            "Switching panels preserves manual directory browsing")
         XCTAssertEqual(reopened["documentY"] as? Double, probe["reopenedDocumentY"] as? Double)
         let start = try XCTUnwrap(probe["start"] as? [String: Any])
         let end = try XCTUnwrap(probe["end"] as? [String: Any])

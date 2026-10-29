@@ -19,3 +19,6 @@ html:has(#mdv-reading-concept) { scrollbar-gutter: auto; }
  }
 #mdv-reading-concept .mdv-app { --mdv-agent-text-size: calc(15px * var(--jm-font-scale, 1)); }
 #mdv-reading-concept .mdv-app .mdv-agent-input { font-size: calc(16px * var(--jm-font-scale, 1)); }
+
+#mdv-reading-concept .mdv-article button.jm-image-action { display: block; width: fit-content; max-width: 100%; min-width: 0; min-height: 0; margin: 0 auto; padding: 0; border-radius: 0; background: transparent; }
+#mdv-reading-concept .mdv-article .jm-image-action:focus-visible { outline: auto; }

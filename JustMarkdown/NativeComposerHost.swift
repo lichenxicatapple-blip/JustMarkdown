@@ -29,7 +29,6 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
             view.accessibilityLabel = String(localized: "AI message")
             view.accessibilityIdentifier = "QuestionInput"
             view.onSubmit = { [weak self] _ in self?.submit(id) }
-            webView.addSubview(view)
             inputs[id] = Input(view: view)
         }
     }
@@ -39,33 +38,37 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
             guard let id = state["id"] as? String, var input = inputs[id] else { continue }
             let visible = state["visible"] as? Bool == true
             let view = input.view
+            guard let webView, let host = webView.hostNativeInput(view, aboveWebContent: true) else { continue }
             if !visible && view.isFirstResponder { _ = view.resignFirstResponder() }
             view.isHidden = !visible
             view.alpha = state["opacity"] as? Double ?? 1
-            view.frame = CGRect(
+            let frame = CGRect(
                 x: state["x"] as? Double ?? 0, y: state["y"] as? Double ?? 0,
                 width: state["width"] as? Double ?? 0, height: state["height"] as? Double ?? 0)
+            view.frame = webView.convert(frame, to: host)
             let metrics = ["fontSize", "lineHeight", "top", "right", "bottom", "left"].map { state[$0] as? Double ?? 0 }
             if input.metrics != metrics && view.markedTextRange == nil {
                 input.metrics = metrics
                 let font = UIFont.systemFont(ofSize: max(12, metrics[0]))
+                // Keep native glyph/caret metrics; distribute CSS half-leading at the container edges.
+                let leading = max(0, metrics[1] - font.lineHeight)
                 let paragraph = NSMutableParagraphStyle()
-                paragraph.minimumLineHeight = max(font.lineHeight, metrics[1])
-                paragraph.maximumLineHeight = paragraph.minimumLineHeight
+                paragraph.lineSpacing = leading
                 let attributes: [NSAttributedString.Key: Any] = [
                     .font: font, .paragraphStyle: paragraph, .foregroundColor: UIColor.label,
                 ]
                 view.font = font
                 view.typingAttributes = attributes
                 view.textContainerInset = UIEdgeInsets(
-                    top: metrics[2], left: metrics[5], bottom: metrics[4], right: metrics[3])
+                    top: metrics[2] + leading / 2, left: metrics[5], bottom: metrics[4] + leading / 2,
+                    right: metrics[3])
                 if !view.text.isEmpty {
                     view.textStorage.addAttributes(
                         attributes, range: NSRange(location: 0, length: view.text.utf16.count))
                 }
             }
             inputs[id] = input
-            if visible { webView?.bringSubviewToFront(view) }
+            if visible { host.bringSubviewToFront(view) }
         }
     }
 
@@ -105,6 +108,10 @@ final class NativeComposerHost: NSObject, UITextViewDelegate {
         input.view.unmarkText()
         let payload: [String: Any] = ["id": id, "text": input.view.text ?? "", "epoch": input.epoch]
         Task { await call?("commitAgentInput", payload) }
+    }
+
+    func textViewDidBeginEditing(_ textView: UITextView) {
+        Task { await call?("agentInteraction", [:]) }
     }
 
     func textViewDidChange(_ textView: UITextView) {

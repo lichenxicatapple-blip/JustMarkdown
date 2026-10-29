@@ -149,6 +149,23 @@
         }
       }
     },
+    "Allow access to the image folder, then retry.": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow access to the image folder, then retry."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先授权访问图片所在文件夹，再重试。"
+          }
+        }
+      }
+    },
     "Allow sending to this AI service before trying again.": {
       "extractionState": "manual",
       "localizations": {
@@ -833,6 +850,23 @@
         }
       }
     },
+    "Image": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片"
+          }
+        }
+      }
+    },
     "Load Local Images": {
       "extractionState": "manual",
       "localizations": {
@@ -1258,6 +1292,23 @@
         }
       }
     },
+    "Reference": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reference"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "引用"
+          }
+        }
+      }
+    },
     "Reference current document": {
       "extractionState": "manual",
       "localizations": {
@@ -1288,6 +1339,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "引用文档"
+          }
+        }
+      }
+    },
+    "Reference in AI Chat…": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reference in AI Chat…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 AI 对话中引用…"
           }
         }
       }
@@ -1700,36 +1768,36 @@
         }
       }
     },
-    "Switch to source": {
+    "Switch to source mode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch to source"
+            "value": "Switch to source mode"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "切换到源码"
+            "value": "切换到源码模式"
           }
         }
       }
     },
-    "Switch to source view to undo this edit.": {
+    "Switch to source mode to undo this edit.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Switch to source view to undo this edit."
+            "value": "Switch to source mode to undo this edit."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请切换到源码后撤销。"
+            "value": "请切换到源码模式后撤销。"
           }
         }
       }
@@ -1866,6 +1934,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "文档正在保存，请稍后重试。"
+          }
+        }
+      }
+    },
+    "The image could not be read. Check that it is available and uses a supported format.": {
+      "extractionState": "stale",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The image could not be read. Check that it is available and uses a supported format."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取图片，请检查图片是否可用及格式是否受支持。"
           }
         }
       }
@@ -2363,36 +2448,36 @@
         }
       }
     },
-    "When you use AI, the full current document, your questions, and this conversation will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service.": {
+    "When you use AI, the full current document, your questions, this conversation, and images you select or the model reads will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When you use AI, the full current document, your questions, and this conversation will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service."
+            "value": "When you use AI, the full current document, your questions, this conversation, and images you select or the model reads will be sent to %@.\n\nOnce you allow this, you won’t be asked again for this service."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用 AI 时，当前文档全文、你的提问和本次对话记录将发送至 %@。\n\n允许后，不再对此服务询问。"
+            "value": "使用 AI 时，当前文档全文、你的提问、本次对话，以及你选中或模型读取的图片将发送至 %@。\n\n允许后，不再对此服务询问。"
           }
         }
       }
     },
-    "Your API key is stored in this device’s Keychain. Asking a question sends the current document and conversation to your configured service.": {
+    "Your API key is stored only in this device’s Keychain.": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your API key is stored in this device’s Keychain. Asking a question sends the current document and conversation to your configured service."
+            "value": "Your API key is stored only in this device’s Keychain."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Key 保存在本机钥匙串。提问时向所配服务发送当前文档与对话。"
+            "value": "API Key 仅保存在本机钥匙串。"
           }
         }
       }
@@ -2451,6 +2536,9 @@
           }
         }
       }
+    },
+    "•": {
+      "shouldTranslate": false
     }
   },
   "version": "1.0"

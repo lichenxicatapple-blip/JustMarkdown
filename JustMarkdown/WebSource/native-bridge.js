@@ -8,6 +8,15 @@
         postNative({ type: 'localResources', token: nativeToken, paths: images.map(image => image.getAttribute('data-source-path') || image.getAttribute('src') || '') });
       }
       images.forEach(image => {
+        if (documentContent && !image.closest('a[href]')) {
+          const action = document.createElement('button');
+          action.type = 'button';
+          action.className = 'jm-image-action cursor-interaction';
+          action.setAttribute('aria-label', image.getAttribute('alt') || t('Image'));
+          action.setAttribute('aria-haspopup', 'menu');
+          image.replaceWith(action);
+          action.append(image);
+        }
         const resourceToken = nativeToken;
         const path = image.getAttribute('data-source-path') || image.getAttribute('src') || '';
         if (!path || /^(https?:|data:|blob:)/i.test(path)) return;
@@ -19,6 +28,26 @@
         });
       });
     }
+    let imageMenuID = null;
+    function dismissImageMenu() {
+      if (!imageMenuID) return;
+      imageMenuID = null;
+      postNative({ type: 'imageMenuDismiss', token: nativeToken });
+    }
+    function showImageMenu(image) {
+      const index = [...reader.querySelectorAll('img')].indexOf(image);
+      const reference = window.JustMarkdown.imageContext(index);
+      if (!reference) return;
+      window.getSelection()?.removeAllRanges();
+      const rect = image.getBoundingClientRect();
+      const top = Math.max(0, rect.top), bottom = Math.min(innerHeight, rect.bottom);
+      imageMenuID = crypto.randomUUID();
+      postNative({ type: 'imageMenu', id: imageMenuID, token: nativeToken, reference,
+        x: Math.max(0, Math.min(innerWidth, rect.left + rect.width / 2)), y: (top + bottom) / 2 });
+    }
+    addEventListener('scroll', dismissImageMenu, { passive: true, capture: true });
+    addEventListener('resize', dismissImageMenu, { passive: true });
+    app.addEventListener('contextmenu', dismissImageMenu, true);
     function askNative(text) {
       readSelection();
       const selected = selectionAttachment || (text ? { text, markdown: text, mode: displayedMode } : null);
@@ -28,6 +57,12 @@
       agentExperience.attach(value, value.rect || { left: 16, bottom: 80 });
     }
     app.addEventListener('click', event => {
+      const image = event.target.closest('.mdv-article .jm-image-action')?.querySelector('img');
+      if (image && event.button === 0 && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        showImageMenu(image);
+        return;
+      }
       const link = event.target.closest(':is(.mdv-article,.mdv-rich-text) a[href]:not([href^="#"])');
       if (!link) return;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -51,6 +86,8 @@
         pendingNativeAgentConsent?.resolve(false);
         pendingNativeAgentConsent = null;
         nativeRequests.clear();
+        frozenImageIDs.clear();
+        dismissImageMenu();
         nativeUndoRequests.clear();
         postNative({ type: 'agentCancel', token: nativeToken });
         agentExperience.reset();
@@ -64,7 +101,7 @@
         ++modeRevision; modeAnimation?.cancel(); modeAnimation = null;
         readingLayout.style.removeProperty('opacity'); delete app.dataset.modeTransition;
         state.mode = 'preview'; displayedMode = 'preview'; state.agent = false;
-        selection = ''; pinnedAnchor = null; lastPosition = null; transitionAnchor = null;
+        selection = ''; pinnedAnchor = null; lastPosition = null; layoutReadingAnchor = null; transitionAnchor = null;
         stopOutlineFollow(); outlineFollowPaused = false; outlineBody.scrollTop = 0;
         updateDocument(); render(); await documentReady;
         window.scrollTo(0,0);
@@ -78,10 +115,30 @@
       },
       toggleOutline() {
         if (state.mode !== 'preview' || !headings.length) return;
-        state.outline = !state.outline; render();
+        setPanelOpen('outline', !state.outline);
       },
       suppressSelection() { readSelection(); },
       askSelection(text) { askNative(text || window.getSelection()?.toString() || ''); },
+      imageMenuDismissed(payload) { if (imageMenuID === payload.id) imageMenuID = null; },
+      imageContext(index) {
+        const contextImage = reader.querySelectorAll('img')[index];
+        if (displayedMode !== 'preview' || !contextImage) return null;
+        const range = document.createRange();
+        range.selectNode(contextImage);
+        const markdown = selectionMarkdown(range);
+        const images = imageReferences(markdown);
+        if (!images.length) return null;
+        const bounds = contextImage.getBoundingClientRect();
+        return { text: images[0].alt || t('Image'), markdown, images, mode: 'preview',
+          documentName: nativeDocumentName, documentMarkdown: documentText,
+          rect: { left: bounds.left, bottom: bounds.bottom } };
+      },
+      askImage(payload) {
+        if (!payload?.images?.length) return;
+        window.getSelection()?.removeAllRanges();
+        pinnedAnchor = captureReadingPosition();
+        agentExperience.attach(payload, payload.rect);
+      },
       askSourceSelection(payload) {
         if (displayedMode !== 'source') return;
         const reference = sourceAttachment(payload);
@@ -107,13 +164,15 @@
         pendingNativeAgentConsent = null;
         pending.resolve(payload.allowed === true);
       },
-      closeAgent() { state.agent = false; render(); },
+      closeAgent() { setPanelOpen('agent', false); },
+      agentInteraction() { notePanelInteraction('agent'); },
       updateAgentInput(payload) { nativeInputs.update(payload); },
       commitAgentInput(payload) { nativeInputs.commit(payload); },
       agentEvent(event) {
         if (event.token !== nativeToken) return;
         const request = nativeRequests.get(event.id);
         if (!request) return;
+        if (event.type === 'images') { freezeImages(event.imageIDs || []); return; }
         if (event.type === 'change') request.change(event.change);
         else if (event.type === 'text') request.text(event.text);
         else {

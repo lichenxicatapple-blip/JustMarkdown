@@ -71,7 +71,8 @@
         "RichText"
       ],
       "invariants": [
-        "Preview, source and outline derive from one working Markdown buffer."
+        "Preview, source and outline derive from one working Markdown buffer.",
+        "One window-width policy coordinates both auxiliary panels; actual reserved width is shared with native controls."
       ],
       "specification": "design/README.md#阅读与源码"
     },
@@ -145,7 +146,10 @@
         "ConversationComposer"
       ],
       "invariants": [
-        "Global and selection entries share one conversation across compact and regular presentations."
+        "Global and selection entries share one conversation across compact and regular presentations.",
+        "The collapse control floats over the conversation without a dedicated header row; assistant content retains shared reading insets.",
+        "The side-panel collapse control shares the document close control's horizontal centerline and hit-target size; panel top and bottom margins may differ.",
+        "Outline and conversation are mutually exclusive when three readable columns do not fit; narrowing retains the last actively used panel and widening does not reopen either."
       ],
       "specification": "design/README.md#ai-对话"
     },
@@ -160,7 +164,8 @@
         "ConversationTurn"
       ],
       "invariants": [
-        "Sent turns and their reference snapshots remain immutable."
+        "Sent turns and their reference snapshots remain immutable.",
+        "Following observes both content and viewport size; only navigation intent changes it, preserving manual browsing across layout changes."
       ],
       "specification": "design/README.md#ai-对话"
     },
@@ -180,7 +185,8 @@
         "ContextAttachment"
       ],
       "invariants": [
-        "One draft and its next-turn reference share the native input bridge."
+        "One draft and its next-turn reference share the native input bridge.",
+        "The reference sits above one input capsule; native text and the Web send button have separate hit regions within it."
       ],
       "specification": "design/README.md#引用与输入"
     },
@@ -226,7 +232,8 @@
       ],
       "selector": "[data-component='RequestStatus']",
       "invariants": [
-        "Only the latest failed turn can replace its answer through an explicit retry."
+        "Only the latest failed turn can replace its answer through an explicit retry.",
+        "Three waiting dots belong to the pending answer and retire on its first visible content; completion, failure, stop and reset remove active feedback without discarding content or drafts."
       ],
       "specification": "design/README.md#请求反馈"
     },
@@ -320,6 +327,26 @@
         "The first send to each service requires explicit native approval; cancellation preserves the draft and reference without starting a request."
       ],
       "specification": "design/README.md#ai-对话"
+    },
+    {
+      "id": "ImageActionMenu",
+      "nativeOwners": [
+        "JustMarkdown/ReaderImageMenu.swift"
+      ],
+      "webOwners": [
+        "JustMarkdown/WebSource/native-bridge.js",
+        "JustMarkdown/WebSource/native.css"
+      ],
+      "uses": [
+        "QuestionPanel",
+        "ContextAttachment"
+      ],
+      "invariants": [
+        "A tap opens the native Reference in AI Chat menu shared with text selections; long presses and secondary clicks retain WebKit image actions.",
+        "Menu references are captured once and checked against the active document token."
+      ],
+      "specification": "design/README.md#引用与输入",
+      "selector": ".jm-image-action"
     }
   ]
 }

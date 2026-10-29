@@ -5,6 +5,54 @@ import XCTest
 
 final class SourceEditorTests: XCTestCase {
     @MainActor
+    func testDetachingFocusedEditorDoesNotPublishDocumentOrFocusChanges() throws {
+        let (editor, window) = try editor("Unchanged document")
+        defer { window.isHidden = true }
+        XCTAssertTrue(editor.textView.isFirstResponder)
+        var focusChanges = [Bool]()
+        var documentChanges = 0
+        editor.onFocusChange = { focusChanges.append($0) }
+        editor.onChange = { _, _ in documentChanges += 1 }
+        editor.detach()
+        XCTAssertFalse(editor.textView.isFirstResponder)
+        XCTAssertNil(editor.textView.superview)
+        XCTAssertTrue(focusChanges.isEmpty, "View teardown cannot publish into the SwiftUI update that removes it")
+        XCTAssertEqual(documentChanges, 0)
+    }
+
+    @MainActor
+    func testSourceDelegateReceivesSystemMultiRangeInputAndMenuRequests() throws {
+        let (editor, window) = try editor("Source selection")
+        defer {
+            editor.detach()
+            window.isHidden = true
+        }
+        let view = editor.textView
+        let delegate = try XCTUnwrap(view.delegate)
+        view.selectedRange = NSRange(location: 0, length: 6)
+        let ranges = [NSValue(range: view.selectedRange)]
+        XCTAssertTrue(
+            editor.responds(to: #selector(UITextViewDelegate.textView(_:shouldChangeTextInRanges:replacementText:))))
+        XCTAssertEqual(delegate.textView?(view, shouldChangeTextInRanges: ranges, replacementText: "Text"), true)
+        XCTAssertTrue(
+            editor.responds(to: #selector(UITextViewDelegate.textView(_:editMenuForTextInRanges:suggestedActions:))))
+        let menu = try XCTUnwrap(delegate.textView?(view, editMenuForTextInRanges: ranges, suggestedActions: []))
+        func actions(_ menu: UIMenu) -> [UIAction] {
+            menu.children.flatMap { element -> [UIAction] in
+                if let action = element as? UIAction { return [action] }
+                if let child = element as? UIMenu { return actions(child) }
+                return []
+            }
+        }
+        XCTAssertEqual(actions(menu).map(\.title), [String(localized: "Reference in AI Chat…")])
+        view.selectedRange = NSRange(location: 0, length: 0)
+        let emptyMenu = try XCTUnwrap(
+            delegate.textView?(
+                view, editMenuForTextInRanges: [NSValue(range: view.selectedRange)], suggestedActions: []))
+        XCTAssertTrue(actions(emptyMenu).isEmpty)
+    }
+
+    @MainActor
     private func editor(_ text: String = "") throws -> (SourceEditor, UIWindow) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let window = UIWindow(windowScene: scene)

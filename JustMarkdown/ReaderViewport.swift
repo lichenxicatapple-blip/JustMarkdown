@@ -1,4 +1,20 @@
 import UIKit
+import WebKit
+
+extension WKWebView {
+    /// Native responders must stay outside WebKit's keyboard/responder hierarchy.
+    func hostNativeInput(_ input: UIView, aboveWebContent: Bool) -> UIView? {
+        guard let host = superview else { return nil }
+        if input.superview !== host {
+            if aboveWebContent {
+                host.insertSubview(input, aboveSubview: self)
+            } else {
+                host.insertSubview(input, belowSubview: self)
+            }
+        }
+        return host
+    }
+}
 
 @MainActor
 final class ReaderViewport: UIView {

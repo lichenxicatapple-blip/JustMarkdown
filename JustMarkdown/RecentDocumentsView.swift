@@ -9,6 +9,10 @@ struct RecentDocumentsView: View {
     @State private var failed = false
     @ScaledMetric(relativeTo: .body) private var rowHeight = 68
 
+    private var preferredHeight: CGFloat? {
+        compact ? nil : min(ReaderDesign.recentsMaxHeight, 56 + rowHeight * CGFloat(max(2, store.documents.count)))
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -60,11 +64,10 @@ struct RecentDocumentsView: View {
                 }
             }
         }
-        .frame(
-            width: compact ? nil : ReaderDesign.recentsWidth,
-            height: compact
-                ? nil : min(ReaderDesign.recentsMaxHeight, 56 + rowHeight * CGFloat(max(2, store.documents.count)))
-        )
+        .frame(width: compact ? nil : ReaderDesign.recentsWidth)
+        // A popover can be shorter than its preferred size near a screen edge.
+        // Let the navigation stack and list shrink with the actual viewport.
+        .frame(minHeight: compact ? nil : 0, idealHeight: preferredHeight, maxHeight: preferredHeight)
         .interactiveDismissDisabled(opening != nil)
         .alert("Unable to Open Document", isPresented: $failed) {
             Button("OK", role: .cancel) {}

@@ -62,8 +62,12 @@
                 if !outputs.isEmpty {
                     text = "已修改这句话，其余内容保持原样。"
                 } else if question.contains("修改") || question.contains("改成") {
-                    if context["view"] as? String != "source" || (body["tools"] as? [Any] ?? []).isEmpty {
-                        text = "请切换到源码后再修改。"
+                    let canEdit = (body["tools"] as? [[String: Any]] ?? []).contains { tool in
+                        let definition = responses ? tool : tool["function"] as? [String: Any] ?? [:]
+                        return definition["name"] as? String == "edit_document"
+                    }
+                    if !canEdit {
+                        text = "请切换到源码模式后再修改。"
                     } else {
                         let background = context["background"] as? [String: Any] ?? [:]
                         let currentID = background["currentDocumentID"] as? String

@@ -10,6 +10,7 @@ struct AgentAttachment: Codable, Sendable, Equatable {
     let end: Int?
     var documentName: String? = nil
     var documentMarkdown: String? = nil
+    var images: [AgentImageReference]? = nil
 }
 
 struct AgentSourceChange: Codable, Sendable, Equatable {
@@ -23,7 +24,6 @@ struct AgentHistoryTurn: Codable, Sendable, Equatable {
     let markdown: String
     let attachment: AgentAttachment?
     var status: String? = nil
-    var change: AgentSourceChange? = nil
     var intent: String? = nil
     var document: AgentAttachment? = nil
     var changes: [AgentSourceChange]? = nil
@@ -62,6 +62,9 @@ struct AgentFailure: Codable, Sendable, Equatable {
             case ModelError.incomplete: "incomplete"
             case ModelError.contextLimit: "contextLimit"
             case ModelError.requestTooLarge: "requestTooLarge"
+            case is AgentImageError: "image"
+            case let value as CocoaError where value.code == .fileReadNoPermission: "imagePermission"
+            case is CocoaError: "image"
             case is ModelError: "service"
             case let value as URLError where value.code == .timedOut: "timeout"
             case is URLError: "network"
@@ -77,6 +80,7 @@ struct AgentModelEvent: Encodable, Sendable {
     var text: String?
     var failure: AgentFailure?
     var change: AgentDocumentChange?
+    var imageIDs: [String]?
 }
 
 /// One model request at a time. The UI supplies immutable turn snapshots, never credentials.
@@ -93,6 +97,7 @@ final class AgentModelTransport {
         var pending: Pending?
         var seenToolResults = Set<String>()
         var toolsPaused = false
+        var messages: [ChatMessage]?
         init(key: String) { self.key = key }
     }
     private final class Pending {
@@ -121,6 +126,8 @@ final class AgentModelTransport {
         id: String, token: String, snapshot: AgentSnapshot, intent: String,
         configuration: ModelConfiguration, key: String,
         toolsAvailable: @escaping @MainActor () -> Bool = { false },
+        prepareImages: @escaping @MainActor () async throws -> [ModelImage] = { [] },
+        imageTools: @escaping @MainActor () -> [ModelTool] = { [] },
         executeTool:
             @escaping @MainActor (
                 ModelToolCall, @escaping @MainActor (AgentDocumentChange) async -> Void
@@ -140,7 +147,13 @@ final class AgentModelTransport {
         run = currentRun
         task = Task { [weak self, client] in
             do {
-                let messages = try snapshot.messages(intent: intent)
+                if currentRun.messages == nil {
+                    var messages = try snapshot.messages(intent: intent)
+                    let images = try await prepareImages()
+                    if !images.isEmpty { messages[messages.count - 1].images = images }
+                    currentRun.messages = messages
+                }
+                let messages = currentRun.messages!
                 while true {
                     try Task.checkCancellation()
                     if let pending = currentRun.pending {
@@ -150,13 +163,15 @@ final class AgentModelTransport {
                             let execution: AgentToolExecution
                             if currentRun.toolsPaused {
                                 execution = AgentToolExecution(output: Self.pausedToolOutput)
-                            } else if snapshot.document?.mode == "source" && toolsAvailable() {
+                            } else if (call.name == "read_image")
+                                || (snapshot.document?.mode == "source" && toolsAvailable())
+                            {
                                 execution = await executeTool(call) { change in
                                     await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                                 }
                             } else {
                                 execution = AgentToolExecution(
-                                    output: "{\"error\":\"read_only\",\"message\":\"请切换到源码后修改。\"}")
+                                    output: "{\"error\":\"read_only\",\"message\":\"请切换到源码模式后再修改。\"}")
                             }
                             // Journal successful effects before observing cancellation. A retry
                             // resumes after these results instead of executing the same edit twice.
@@ -172,7 +187,8 @@ final class AgentModelTransport {
                             pending.outputs.append(
                                 ModelToolOutput(
                                     id: call.id,
-                                    content: repeated ? Self.pausedToolOutput : execution.output))
+                                    content: repeated ? Self.pausedToolOutput : execution.output,
+                                    images: repeated ? [] : execution.images))
                             if let change = execution.change {
                                 await emit(AgentModelEvent(id: id, token: token, type: "change", change: change))
                             }
@@ -182,8 +198,11 @@ final class AgentModelTransport {
                     }
                     try Task.checkCancellation()
                     let tools =
-                        snapshot.document?.mode == "source" && toolsAvailable() && !currentRun.toolsPaused
-                        ? AgentDocumentTools.definitions : []
+                        currentRun.toolsPaused
+                        ? []
+                        : imageTools()
+                            + (snapshot.document?.mode == "source" && toolsAvailable()
+                                ? AgentDocumentTools.definitions : [])
                     let turn = try await client.stream(
                         configuration: configuration, key: key, messages: messages,
                         tools: tools, exchanges: currentRun.exchanges

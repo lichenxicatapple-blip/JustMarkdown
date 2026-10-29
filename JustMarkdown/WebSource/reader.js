@@ -82,7 +82,10 @@
     app.append(template.content.cloneNode(true));
     localize(app);
     const layout = app.dataset.layout;
-    const state = { mode: 'preview', agent: false, outline: !matchMedia('(max-width: 560px)').matches };
+    const state = { mode: 'preview', agent: false, outline: false };
+    let lastActivePanel = 'outline';
+    let panelLayout = null;
+    let layoutReadingAnchor = null;
     let selection = '';
     let selectionAttachment = null;
     const reader = app.querySelector('.mdv-article');
@@ -183,11 +186,12 @@
       if (displayedMode === 'preview' && current) markHeading(current.id);
       lastPosition = { anchor: { ...anchor }, viewport: viewportSnapshot() };
       pinnedAnchor = { ...anchor };
+      layoutReadingAnchor = { ...anchor };
     }
     // Reflow or a late image can change geometry. Keep the anchor until the user
     // starts another interaction, without chasing their subsequent scrolling.
     const positionObserver = new ResizeObserver(() => {
-      if (!pinnedAnchor || positionFrame) return;
+      if (displayedMode !== 'preview' || !pinnedAnchor || positionFrame) return;
       positionFrame = requestAnimationFrame(() => {
         positionFrame = 0;
         if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
@@ -407,14 +411,58 @@
       }
       await document.fonts.ready;
     }
-    function renderRichMarkdown(markdown, prefix) {
-      const documentFragment = window.DOMPurify.sanitize(markdownRenderer.render(markdown), {
+    function markdownFragment(markdown, environment = {}) {
+      return window.DOMPurify.sanitize(markdownRenderer.render(markdown, environment), {
         USE_PROFILES: { html: true }, RETURN_DOM_FRAGMENT: true,
         ALLOW_DATA_ATTR: false,
         ADD_ATTR: ['data-source-start', 'data-source-end', 'data-code-start', 'data-code-count', 'data-source-path', 'data-math-display'],
         FORBID_TAGS: ['style', 'script', 'iframe', 'object', 'embed', 'form', 'textarea', 'button', 'select', 'option', 'link', 'meta', 'base'],
         FORBID_ATTR: ['style', 'name', 'autofocus', 'form', 'contenteditable', 'tabindex']
       });
+    }
+    function imageReferences(markdown, environment) {
+      return [...markdownFragment(markdown, environment).querySelectorAll('img')].map(image => ({
+        id: crypto.randomUUID(), source: image.getAttribute('data-source-path') || image.getAttribute('src') || '',
+        alt: image.getAttribute('alt') || ''
+      })).filter(image => image.source);
+    }
+    let imageInventoryMarkdown = null;
+    let imageInventorySources = [];
+    function documentImageReferences() {
+      if (imageInventoryMarkdown !== documentText) {
+        imageInventoryMarkdown = documentText;
+        imageInventorySources = imageReferences(documentText).map(({ source, alt }) => ({ source, alt }));
+      }
+      return imageInventorySources.map(image => ({ ...image, id: crypto.randomUUID() }));
+    }
+    const frozenImageIDs = new Set();
+    function freezeImages(ids) {
+      ids.forEach(id => frozenImageIDs.add(id));
+      app.querySelectorAll('img[data-agent-image-id]').forEach(image => {
+        if (frozenImageIDs.has(image.dataset.agentImageId)) image.src = `jm-image://${nativeToken}/${image.dataset.agentImageId}`;
+      });
+    }
+    function fragmentIdentifier(link) {
+      const value = link.getAttribute('href').slice(1);
+      try { return decodeURIComponent(value); }
+      catch { return value; }
+    }
+    function assignHeadingIDs(fragment) {
+      const used = new Set([...fragment.querySelectorAll('[id]')].map(element => element.id));
+      fragment.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(heading => {
+        if (heading.id) return;
+        // Section links use the rendered title, without formatting or punctuation.
+        const slug = heading.textContent.trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}_ -]/gu, '').replace(/ /g, '-');
+        // Empty titles retain an outline-only ID without taking a named section's anchor.
+        if (!slug) return;
+        let id = slug, suffix = 0;
+        while (used.has(id)) id = `${slug}-${++suffix}`;
+        heading.id = id;
+        used.add(id);
+      });
+    }
+    function renderRichMarkdown(markdown, prefix, images = []) {
+      const documentFragment = markdownFragment(markdown);
       documentFragment.querySelectorAll('input').forEach(input => {
         if (input.type !== 'checkbox') input.remove();
         else input.disabled = true;
@@ -422,6 +470,7 @@
       documentFragment.querySelectorAll('[class]').forEach(element => {
         Array.from(element.classList).filter(name => name.startsWith('mdv-') && !['mdv-tight-paragraph', 'mdv-math', 'mdv-mermaid'].includes(name)).forEach(name => element.classList.remove(name));
       });
+      assignHeadingIDs(documentFragment);
       const contentIds = new Map();
       documentFragment.querySelectorAll('[id]').forEach((element, index) => {
         const original = element.id;
@@ -429,8 +478,8 @@
         if (!contentIds.has(original)) contentIds.set(original, element.id);
       });
       documentFragment.querySelectorAll('a[href^="#"]').forEach(link => {
-        const id = link.getAttribute('href').slice(1);
-        if (contentIds.has(id)) link.setAttribute('href', `#${contentIds.get(id)}`);
+        const id = fragmentIdentifier(link);
+        if (contentIds.has(id)) link.setAttribute('href', `#${encodeURIComponent(contentIds.get(id))}`);
       });
       documentFragment.querySelectorAll('a[href]:not([href^="#"])').forEach(link => {
         link.setAttribute('target', '_blank');
@@ -441,6 +490,13 @@
         image.setAttribute('data-source-path', path || '');
       });
       prepareLocalResources(documentFragment, prefix === layout);
+      // Quote images keep the immutable native snapshot after it is sent/read.
+      documentFragment.querySelectorAll('img').forEach(image => {
+        const reference = images.find(value => value.source === image.dataset.sourcePath);
+        if (!reference) return;
+        image.dataset.agentImageId = reference.id;
+        if (frozenImageIDs.has(reference.id)) image.src = `jm-image://${nativeToken}/${reference.id}`;
+      });
       documentFragment.querySelectorAll('summary').forEach(summary => summary.classList.add('cursor-interaction'));
       return documentFragment;
     }
@@ -450,29 +506,76 @@
       const documentFragment = renderRichMarkdown(renderedMarkdown, layout);
       reader.replaceChildren(documentFragment);
       const documentHeadings = Array.from(reader.querySelectorAll('h1,h2,h3,h4,h5,h6'));
-      if (documentHeadings[0]?.tagName === 'H1' && reader.firstElementChild === documentHeadings[0]) documentHeadings.shift();
       headings.splice(0, headings.length, ...documentHeadings);
       buildOutline();
       markHeading(headings[0]?.id);
       documentReady = enhanceDocument();
     }
+    function notePanelInteraction(panel) { lastActivePanel = panel; }
+    function setPanelOpen(panel, shown) {
+      pinnedAnchor = displayedMode === 'preview' ? captureReadingPosition() : null;
+      state[panel] = shown;
+      if (shown) notePanelInteraction(panel);
+      render();
+    }
+    function resolvePanelLayout() {
+      const style = getComputedStyle(app);
+      const value = name => parseFloat(style.getPropertyValue(name));
+      const width = app.clientWidth;
+      const documentMinimum = value('--mdv-document-minimum-width');
+      const agentMinimum = value('--mdv-agent-minimum-width');
+      const agentMaximum = value('--mdv-agent-width');
+      const edge = value('--mdv-agent-edge-inset');
+      const outlineWidth = value('--mdv-outline-width');
+      const side = width >= documentMinimum + agentMinimum + 2 * edge;
+      const coexist = width >= documentMinimum + agentMinimum + 2 * edge + outlineWidth;
+      if (state.agent && state.outline && headings.length && displayedMode === 'preview' && !coexist) {
+        state[lastActivePanel === 'outline' ? 'agent' : 'outline'] = false;
+      }
+      const outlineOpen = state.outline && headings.length && displayedMode === 'preview';
+      const overlay = width < documentMinimum + outlineWidth;
+      const available = width - documentMinimum - 2 * edge - (outlineOpen && !overlay ? outlineWidth : 0);
+      const agentWidth = clamp(width * value('--mdv-agent-width-fraction'), agentMinimum, Math.min(agentMaximum, Math.max(agentMinimum, available)));
+      const next = { width, sheet: !side, overlay, coexist, agentWidth,
+        reservedWidth: state.agent && side ? agentWidth + 2 * edge : 0 };
+      app.dataset.agentLayout = next.sheet ? 'sheet' : 'side';
+      app.dataset.outlineLayout = overlay ? 'overlay' : 'side';
+      app.dataset.panelsCoexist = String(coexist);
+      app.style.setProperty('--mdv-agent-panel-width', agentWidth + 'px');
+      app.style.setProperty('--mdv-agent-reserved-width', next.reservedWidth + 'px');
+      panelLayout = next;
+      return next;
+    }
+    ['pointerdown', 'wheel', 'keydown'].forEach(type => {
+      outline.addEventListener(type, () => notePanelInteraction('outline'), { passive: true, capture: true });
+      agent.addEventListener(type, () => notePanelInteraction('agent'), { passive: true, capture: true });
+    });
+    let readingAnchorFrame = 0;
+    window.addEventListener('scroll', () => {
+      if (readingAnchorFrame) return;
+      readingAnchorFrame = requestAnimationFrame(() => {
+        readingAnchorFrame = 0;
+        // A resize can emit scrolling before its width policy has reconciled.
+        // Keep the previous semantic anchor through that intermediate layout.
+        const widthChanging = panelLayout && Math.abs(app.clientWidth - panelLayout.width) >= .5;
+        if (!pinnedAnchor && !positioning && !widthChanging) layoutReadingAnchor = captureReadingPosition();
+      });
+    }, { passive: true });
     /* native-bridge */
     /* native-agent */
     const agentExperience = window.JustMarkdownAgent.create({
       ensureConfigured: ensureNativeAgentConfigured,
       provider: createNativeAgentTransport(), nativeInputs,
-      app, panel: agent, renderMarkdown: renderRichMarkdown,
+      app, panel: agent, renderMarkdown: renderRichMarkdown, fragmentIdentifier,
       enhance: enhanceDocument, motion, reducedMotion,
-      onPresentationChange(value) { postNative({ type: 'agentPresentation', ...value }); },
+      onPresentationChange(value) { postNative({ type: 'agentPresentation', token: nativeToken, ...value }); },
       onToggle(shown) {
-        state.agent = shown;
-        if (shown && app.clientWidth < 1100) state.outline = false;
-        render();
+        setPanelOpen('agent', shown);
       },
       documentAttachment() {
         const markdown = documentText;
         return {
-          text: markdown, markdown, mode: displayedMode, scope: 'document',
+          text: markdown, markdown, images: documentImageReferences(), mode: displayedMode, scope: 'document',
           location: t('Current document · {name}', { name: nativeDocumentName }), documentName: nativeDocumentName
         };
       }
@@ -480,12 +583,14 @@
     updateDocument();
     function render() {
       const hasOutline = headings.length > 0;
+      const previousRect = agent.hidden ? null : agent.getBoundingClientRect();
+      const presentation = resolvePanelLayout();
       window.webkit?.messageHandlers.reader.postMessage({type:'state', token:nativeToken, mode:state.mode, outline:state.outline && hasOutline, hasOutline});
       const outlineWasExpanded = outline.dataset.expanded === 'true';
       app.classList.toggle('mdv-showing-source', displayedMode === 'source');
       reader.hidden = displayedMode !== 'preview';
       source.hidden = displayedMode !== 'source';
-      agentExperience.present(state.agent);
+      agentExperience.present(state.agent, { ...presentation, previousRect });
       workspace.classList.toggle('mdv-has-agent', state.agent);
       const showOutline = hasOutline && state.outline && displayedMode === 'preview';
       outline.hidden = !hasOutline || displayedMode !== 'preview';
@@ -494,7 +599,7 @@
       outlineBody.setAttribute('aria-hidden', String(!showOutline));
       readingLayout.classList.toggle('mdv-with-outline', showOutline);
       if (!showOutline) stopOutlineFollow();
-      if (showOutline && !outlineWasExpanded) { outlineFollowPaused = false; keepCurrentHeadingVisible(); }
+      if (showOutline && !outlineWasExpanded) keepCurrentHeadingVisible();
       nativeInputs.trackLayout();
     }
     function switchMode(nextMode) {
@@ -769,6 +874,45 @@
       }
       return serialize(fragment).trim();
     }
+    function sourceQuote(markdown, start, end, tokens, offsets) {
+      const regions = [];
+      for (const token of tokens) {
+        if (!token.map) continue;
+        const from = offsets[token.map[0]], to = offsets[token.map[1]] ?? documentText.length;
+        if (from >= end || to <= start) continue;
+        if (['fence', 'code_block'].includes(token.type)) {
+          regions.push({ from, to, block: true, language: token.info.trim().split(/\s/)[0] });
+        } else if (token.type === 'inline' && token.children?.some(child => child.type === 'code_inline')) {
+          // Markdown-it maps blocks, not inline source offsets. Locate exact
+          // backtick runs only inside blocks it has identified as inline code.
+          const raw = documentText.slice(from, to), runs = [...raw.matchAll(/`+/g)];
+          for (let index = 0; index < runs.length; index++) {
+            const opening = runs[index];
+            let slash = opening.index - 1;
+            while (slash >= 0 && raw[slash] === '\\') slash--;
+            if ((opening.index - 1 - slash) % 2) continue;
+            const close = runs.findIndex((run, next) => next > index && run[0].length === opening[0].length);
+            if (close < 0) continue;
+            regions.push({ from: from + opening.index, to: from + runs[close].index + runs[close][0].length, block: false });
+            index = close;
+          }
+        }
+      }
+      // Fully selected code keeps its own Markdown delimiters. A clipped code
+      // span/block needs explicit code markup so its text cannot become a picture.
+      for (const region of regions.filter(region => region.from < end && region.to > start && (start > region.from || end < region.to)).sort((a, b) => b.from - a.from)) {
+        const first = Math.max(start, region.from), last = Math.min(end, region.to);
+        const code = document.createElement('code');
+        code.textContent = documentText.slice(first, last);
+        if (region.language) code.className = 'language-' + region.language;
+        const tick = String.fromCharCode(96);
+        const delimiter = tick.repeat(Math.max(1, ...[...code.textContent.matchAll(/`+/g)].map(match => match[0].length + 1)));
+        let replacement = delimiter + ' ' + code.textContent + ' ' + delimiter;
+        if (region.block) { const pre = document.createElement('pre'); pre.append(code); replacement = '\n\n' + pre.outerHTML + '\n\n'; }
+        markdown = markdown.slice(0, first - start) + replacement + markdown.slice(last - start);
+      }
+      return markdown;
+    }
     function sourceAttachment({ start, end, rect }) {
         selection = documentText.slice(start, end);
         const first = documentText.slice(0, start).split('\n').length;
@@ -777,24 +921,32 @@
         let markdown = selection;
         const offsets = [0];
         documentText.split('\n').forEach(line => offsets.push(offsets.at(-1) + line.length + 1));
-        const codeBlock = markdownRenderer.parse(documentText, {}).find(token => token.type === 'fence' && token.map && start >= offsets[token.map[0] + 1] && end <= (offsets[token.map[1] - 1] ?? documentText.length));
-        if (codeBlock) {
-          const tick = String.fromCharCode(96);
-          const fence = tick.repeat(Math.max(3, ...Array.from(selection.matchAll(new RegExp(tick + '+', 'g')), match => match[0].length + 1)));
-          markdown = fence + codeBlock.info.trim().split(/\s/)[0] + '\n' + selection + '\n' + fence;
+        const environment = {};
+        const tokens = markdownRenderer.parse(documentText, environment);
+        markdown = sourceQuote(markdown, start, end, tokens, offsets);
+        const documentImages = documentImageReferences();
+        const images = imageReferences(markdown, { references: environment.references })
+          .filter(image => documentImages.some(actual => actual.source === image.source));
+        if (images.length && !imageReferences(markdown).length) {
+          const container = document.createElement('div');
+          container.append(markdownFragment(markdown, { references: environment.references }));
+          markdown = container.innerHTML;
         }
-        return { text: selection, markdown, mode: 'source', start, end, location, rect, documentName: nativeDocumentName };
+        return { text: selection, markdown, images, mode: 'source', start, end, location, rect, documentName: nativeDocumentName };
     }
     function readSelection() {
       const selected = window.getSelection();
       const text = selected?.toString().trim();
-      if (displayedMode === 'preview' && text && selected.rangeCount && selected.anchorNode && selected.focusNode && reader.contains(selected.anchorNode) && reader.contains(selected.focusNode)) {
+      if (displayedMode === 'preview' && !selected?.isCollapsed && selected.rangeCount && selected.anchorNode && selected.focusNode && reader.contains(selected.anchorNode) && reader.contains(selected.focusNode)) {
         selection = text;
         const range = selected.getRangeAt(0);
         const block = (selected.anchorNode.nodeType === Node.ELEMENT_NODE ? selected.anchorNode : selected.anchorNode.parentElement)?.closest('[data-source-start]');
         const location = block ? t('Text · Line {line}', { line: Number(block.dataset.sourceStart) + 1 }) : t('Selected text');
         const rect = previewSelectionEndRect(range);
-        selectionAttachment = { text, markdown: selectionMarkdown(range), mode: 'preview', location, rect };
+        const markdown = selectionMarkdown(range);
+        const images = imageReferences(markdown);
+        if (!text && !images.length) { selectionAttachment = null; return null; }
+        selectionAttachment = { text: text || images.map(image => image.alt).filter(Boolean).join(', ') || t('Image'), markdown, images, mode: 'preview', location, rect };
         return rect;
       }
       selection = '';
@@ -804,7 +956,7 @@
     document.addEventListener('selectionchange', readSelection);
     document.addEventListener('pointerdown', event => {
       if (event.button !== 0 || event.ctrlKey) return;
-      if (state.outline && matchMedia('(max-width: 560px)').matches && !outline.contains(event.target)) {
+      if (state.outline && panelLayout.overlay && !outline.contains(event.target)) {
         state.outline = false;
         render();
       }
@@ -813,11 +965,9 @@
     app.addEventListener('click', event => {
       const contentLink = event.target.closest('.mdv-article a[href^="#"]');
       if (contentLink) {
-        let target;
-        try { target = document.getElementById(decodeURIComponent(contentLink.getAttribute('href').slice(1))); }
-        catch { return; }
+        event.preventDefault();
+        const target = document.getElementById(fragmentIdentifier(contentLink));
         if (target && reader.contains(target)) {
-          event.preventDefault();
           pinnedAnchor = null;
           target.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
         }
@@ -827,7 +977,7 @@
       if (targetLink && app.contains(targetLink)) {
         event.preventDefault();
         outlineFollowPaused = false;
-        if (matchMedia('(max-width: 560px)').matches) state.outline = false;
+        if (panelLayout.overlay) state.outline = false;
         render();
         markHeading(targetLink.dataset.tocTarget);
         keepCurrentHeadingVisible();
@@ -849,7 +999,16 @@
       render();
 
     });
+    state.outline = !resolvePanelLayout().overlay;
     render();
+    layoutReadingAnchor = captureReadingPosition();
+    const panelSizeObserver = new ResizeObserver(() => {
+      if (panelLayout && Math.abs(app.clientWidth - panelLayout.width) < .5) return;
+      pinnedAnchor = displayedMode === 'preview' ? pinnedAnchor || layoutReadingAnchor || captureReadingPosition() : null;
+      render();
+      if (pinnedAnchor) restoreReadingPosition(pinnedAnchor);
+    });
+    panelSizeObserver.observe(app);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { documentReady = enhanceDocument(); });
     requestAnimationFrame(() => { app.dataset.ready = 'true'; postNative({type:'ready'}); });
     window.lucide.createIcons();

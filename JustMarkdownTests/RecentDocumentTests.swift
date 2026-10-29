@@ -1,8 +1,74 @@
+import SwiftUI
 import XCTest
 
 @testable import JustMarkdown
 
 final class RecentDocumentTests: XCTestCase {
+    @MainActor
+    func testRecentListFitsAHeightConstrainedPopover() async throws {
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = RecentDocumentsStore(defaults: defaults)
+        for number in 0..<10 {
+            let file = URL(fileURLWithPath: "/tmp/recent-\(number).md")
+            store.record(await RecentDocumentsStore.prepare(file, folders: []))
+        }
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+        for textSize in [DynamicTypeSize.large, .accessibility3] {
+            let host = UIHostingController(
+                rootView: RecentDocumentsView(store: store, compact: false, open: { _ in false })
+                    .environment(\.dynamicTypeSize, textSize))
+            controller.addChild(host)
+            controller.view.addSubview(host.view)
+            host.didMove(toParent: controller)
+            defer {
+                host.willMove(toParent: nil)
+                host.view.removeFromSuperview()
+                host.removeFromParent()
+            }
+            for height: CGFloat in [230, 540, 230] {
+                host.view.frame = CGRect(x: 0, y: 50, width: ReaderDesign.recentsWidth, height: height)
+                var list: UICollectionView?
+                let deadline = Date().addingTimeInterval(8)
+                while Date() < deadline {
+                    host.view.layoutIfNeeded()
+                    list = descendants(host.view).compactMap { $0 as? UICollectionView }.first
+                    if let list, !list.visibleCells.isEmpty { break }
+                    try await Task.sleep(for: .milliseconds(40))
+                }
+                let viewport = try XCTUnwrap(list)
+                viewport.setContentOffset(CGPoint(x: 0, y: -viewport.adjustedContentInset.top), animated: false)
+                viewport.layoutIfNeeded()
+                let frame = viewport.convert(viewport.bounds, to: host.view)
+                let first = try XCTUnwrap(viewport.layoutAttributesForItem(at: IndexPath(item: 0, section: 0)))
+                let firstFrame = viewport.convert(first.frame, to: host.view)
+                let message = "Popover height \(height), text size \(textSize)"
+                XCTAssertGreaterThanOrEqual(frame.minY, host.view.bounds.minY - 1, message)
+                XCTAssertLessThanOrEqual(frame.maxY, host.view.bounds.maxY + 1, message)
+                XCTAssertGreaterThanOrEqual(firstFrame.minY, host.view.bounds.minY - 1, message)
+                XCTAssertLessThanOrEqual(firstFrame.maxY, host.view.bounds.maxY + 1, message)
+                let navigationBar = try XCTUnwrap(descendants(host.view).compactMap { $0 as? UINavigationBar }.first)
+                let titleFrame = navigationBar.convert(navigationBar.bounds, to: host.view)
+                XCTAssertGreaterThanOrEqual(titleFrame.minY, host.view.bounds.minY - 1, message)
+                XCTAssertLessThanOrEqual(titleFrame.maxY, host.view.bounds.maxY + 1, message)
+                let lastPath = IndexPath(item: store.documents.count - 1, section: 0)
+                viewport.scrollToItem(at: lastPath, at: .bottom, animated: false)
+                viewport.layoutIfNeeded()
+                let last = try XCTUnwrap(viewport.layoutAttributesForItem(at: lastPath))
+                let lastFrame = viewport.convert(last.frame, to: host.view)
+                XCTAssertGreaterThanOrEqual(lastFrame.minY, host.view.bounds.minY - 1, message)
+                XCTAssertLessThanOrEqual(lastFrame.maxY, host.view.bounds.maxY + 1, message)
+            }
+        }
+    }
+
     private func invalidBookmark(_ url: URL) throws -> BookmarkedLocation {
         let data = try JSONSerialization.data(withJSONObject: [
             "url": url.absoluteString, "bookmark": Data("invalid bookmark".utf8).base64EncodedString(),

@@ -1,10 +1,86 @@
 import UIKit
+import WebKit
 import XCTest
 
 @testable import JustMarkdown
 
 @MainActor
 final class ConversationInputTests: XCTestCase {
+    func testComposerCentersSingleLineGlyphsWithinItsCapsule() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.overrideUserInterfaceStyle = .light
+        let controller = UIViewController()
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        let webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
+        controller.view.addSubview(webView)
+        let host = NativeComposerHost(webView: webView)
+        defer {
+            host.detach()
+            window.isHidden = true
+        }
+        var layout: [String: Any] = [
+            "id": "question", "visible": true, "opacity": 1.0,
+            "x": 20.0, "y": 20.0, "width": 300.0, "height": 52.0,
+            "fontSize": 16.0, "lineHeight": 26.4,
+            "top": 12.0, "right": 11.0, "bottom": 12.0, "left": 11.0,
+        ]
+        host.updateLayout([layout])
+        let input = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? ConversationTextView }.first)
+        XCTAssertTrue(input.superview === webView.superview)
+        XCTAssertFalse(input.isDescendant(of: webView))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        for (epoch, text) in ["哈哈哈", "Hamburg", "Hello 你好"].enumerated() {
+            host.setText(id: "question", text: text, epoch: epoch + 1)
+            input.setNeedsLayout()
+            input.layoutIfNeeded()
+            await Task.yield()
+            let image = UIGraphicsImageRenderer(size: input.bounds.size, format: format).image { context in
+                UIColor.white.setFill()
+                context.fill(input.bounds)
+                input.layer.render(in: context.cgContext)
+            }
+            let raster = try XCTUnwrap(image.cgImage)
+            let data = try XCTUnwrap(raster.dataProvider?.data)
+            let bytes = try XCTUnwrap(CFDataGetBytePtr(data))
+            var rows: [Int] = []
+            for y in 0..<raster.height {
+                for x in 0..<raster.width {
+                    let offset = y * raster.bytesPerRow + x * 4
+                    if bytes[offset] < 128 && bytes[offset + 1] < 128 && bytes[offset + 2] < 128 {
+                        rows.append(y)
+                        break
+                    }
+                }
+            }
+            let first = try XCTUnwrap(rows.first, "The input must render actual text")
+            let last = try XCTUnwrap(rows.last)
+            let glyphCenter = CGFloat(first + last + 1) / 2
+            XCTAssertEqual(glyphCenter, input.bounds.midY, accuracy: 2, "Vertical alignment for \(text)")
+            let caret = input.caretRect(for: input.endOfDocument)
+            XCTAssertEqual(caret.midY, input.bounds.midY, accuracy: 2, "Caret alignment for \(text)")
+        }
+        for count in [2, 5] {
+            layout["height"] = ceil(24 + 26.4 * Double(count))
+            host.updateLayout([layout])
+            host.setText(
+                id: "question", text: Array(repeating: "Hello 你好", count: count).joined(separator: "\n"),
+                epoch: count + 10)
+            input.layoutIfNeeded()
+            await Task.yield()
+            XCTAssertLessThanOrEqual(input.contentSize.height, input.bounds.height + 1, "Multiline text must fit")
+            // UIKit's caret can extend into font half-leading. Preserve the
+            // requested capsule padding rather than counting that leading twice.
+            XCTAssertLessThanOrEqual(
+                input.caretRect(for: input.endOfDocument).maxY,
+                input.bounds.height - 12, "The final line must retain bottom clearance"
+            )
+        }
+    }
+
     func testSoftwareReturnAndMultilineInsertionNeverSubmit() {
         let view = ConversationTextView()
         var submitted = false

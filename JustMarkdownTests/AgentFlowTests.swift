@@ -9,6 +9,7 @@ private struct AgentFixture: Sendable {
     var text = ""
     var delay: TimeInterval = 0
     var waitsForCancellation = false
+    var waitsAfterText = false
     var complete = true
     var headers: [String: String] = [:]
     var calls: [ModelToolCall] = []
@@ -51,9 +52,23 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "agent.example.test" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        let fixture = Self.queue.next(request)
+        var fixture = Self.queue.next(request)
+        if fixture.calls.contains(where: { $0.arguments == "$first-image" }) {
+            let body = Self.queue.requests().last ?? Data()
+            let payload = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            let items = (payload["input"] ?? payload["messages"]) as? [[String: Any]] ?? []
+            let content = items.last?["content"] as? String ?? "{}"
+            let user = (try? JSONSerialization.jsonObject(with: Data(content.utf8))) as? [String: Any] ?? [:]
+            let images = (user["background"] as? [String: Any])?["images"] as? [[String: Any]] ?? []
+            let id = images.first?["id"] as? String ?? "missing-inventory"
+            fixture.calls = fixture.calls.map {
+                ModelToolCall(id: $0.id, name: $0.name, arguments: "{\"imageID\":\"\(id)\"}")
+            }
+        }
         if fixture.waitsForCancellation { return }
-        DispatchQueue.global().asyncAfter(deadline: .now() + fixture.delay) { [self] in
+        let responseFixture = fixture
+        DispatchQueue.global().asyncAfter(deadline: .now() + responseFixture.delay) {
+            [self, fixture = responseFixture] in
             guard !lock.withLock({ stopped }) else { return }
             let response = HTTPURLResponse(
                 url: request.url!, statusCode: fixture.status, httpVersion: "HTTP/1.1",
@@ -109,6 +124,7 @@ private final class AgentFixtureProtocol: URLProtocol, @unchecked Sendable {
                                 : "data: [DONE]\n\n").utf8))
                 }
                 client?.urlProtocol(self, didLoad: data)
+                if fixture.waitsAfterText { return }
             }
             client?.urlProtocolDidFinishLoading(self)
         }
@@ -248,9 +264,11 @@ final class AgentFlowTests: AgentReaderTestCase {
     }
 
     func testRichRepliesHistoryAndGlobalContextUseCurrentBuffer() async throws {
-        let original = "# 原始文档\n\n需要解释的 **概念**。\n"
+        let original = "# 原始文档\n\n需要解释的 **概念**。\n\n#### 4.3.2 头部裁剪\n"
         let rich = """
             **回答**与 `code`。
+
+            [章节链接](#432-头部裁剪)
 
             | 项目 | 内容 |
             | --- | --- |
@@ -262,6 +280,8 @@ final class AgentFlowTests: AgentReaderTestCase {
             flowchart LR
               A --> B
             ```
+
+            #### 4.3.2 头部裁剪
 
             [^a]: 引用说明。
             """
@@ -282,6 +302,20 @@ final class AgentFlowTests: AgentReaderTestCase {
             try await bridge.webView.evaluateJavaScript(
                 "document.querySelectorAll('.mdv-turn script,.mdv-turn iframe,.mdv-turn [onerror]').length") as? Int
         XCTAssertEqual(unsafe, 0)
+        let localLinks =
+            try await bridge.webView.evaluateJavaScript(
+                """
+                (() => {
+                  const reply = document.querySelector('.mdv-assistant-turn');
+                  return [...reply.querySelectorAll('a[href^="#"]')].every(link => {
+                    const target = document.getElementById(decodeURIComponent(link.getAttribute('href').slice(1)));
+                    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+                    link.dispatchEvent(click);
+                    return !!target && reply.contains(target) && click.defaultPrevented;
+                  });
+                })()
+                """) as? Bool
+        XCTAssertEqual(localLinks, true, "Reply sections and footnotes must resolve within that reply")
         let updated = "# 新文档内容\n\n更新后的内容。\n"
         _ = bridge.sourceEditor.replace(expected: bridge.sourceEditor.history.text, with: updated)
         await session.closeAgent()
@@ -416,6 +450,407 @@ final class AgentFlowTests: AgentReaderTestCase {
         let result = try await state(bridge)
         XCTAssertEqual((result["turns"] as? [[String: Any]])?.last?["state"] as? String, "stopped")
         XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 1)
+    }
+
+    func testWaitingFeedbackHandsOffToTextAndClearsOnStopFailureAndCompletion() async throws {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(waitsForCancellation: true),
+            AgentFixture(text: "A **partial answer**.", waitsAfterText: true, complete: false),
+            AgentFixture(status: 503),
+            AgentFixture(text: "A complete answer."),
+        ])
+        let (_, bridge, _, _) = try await reader("# Document\n\nContent.\n")
+        _ = try await bridge.call("toggleAgent")
+        try await send("First question", bridge: bridge)
+        try await wait { AgentFixtureProtocol.queue.requests().count == 1 }
+        let dots = try await bridge.webView.evaluateJavaScript("document.querySelectorAll('.mdv-agent-dot').length")
+        XCTAssertEqual(dots as? Int, 3)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+        try await wait { bridge.session.agentTransport.activeID == nil }
+        var remainingDots = try await bridge.webView.evaluateJavaScript(
+            "document.querySelectorAll('.mdv-agent-dot').length")
+        XCTAssertEqual(remainingDots as? Int, 0)
+
+        try await send("Second question", bridge: bridge)
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-assistant-turn[data-state=streaming] strong')?.textContent === 'partial answer' && !document.querySelector('.mdv-agent-dot')"
+            ) as? Bool == true
+        }
+        let marker = try await bridge.webView.evaluateJavaScript(
+            "getComputedStyle(document.querySelector('.mdv-assistant-turn[data-state=streaming] .mdv-response-block > p'), '::after').content"
+        )
+        XCTAssertEqual(marker as? String, "\"\"")
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const input = document.querySelector('.mdv-agent-input'); input.value = 'Next draft'; input.dispatchEvent(new Event('input', {bubbles:true})); document.querySelector('.mdv-agent-send').click()"
+        )
+        try await wait { bridge.session.agentTransport.activeID == nil }
+        var result = try await state(bridge)
+        XCTAssertEqual(result["draft"] as? String, "Next draft")
+        XCTAssertTrue(
+            ((result["turns"] as? [[String: Any]])?.last?["text"] as? String)?.contains("partial answer") == true)
+        let stoppedMarker = try await bridge.webView.evaluateJavaScript(
+            "getComputedStyle(document.querySelector('.mdv-assistant-turn:last-child .mdv-response-block > p'), '::after').content"
+        )
+        XCTAssertEqual(stoppedMarker as? String, "none")
+
+        try await send("Third question", bridge: bridge)
+        try await wait {
+            (try await self.state(bridge)["turns"] as? [[String: Any]])?.last?["state"] as? String == "failed"
+        }
+        remainingDots = try await bridge.webView.evaluateJavaScript(
+            "document.querySelectorAll('.mdv-agent-dot').length")
+        XCTAssertEqual(remainingDots as? Int, 0)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('[data-agent-action=retry]').click()")
+        try await completed(bridge, count: 6)
+        result = try await state(bridge)
+        XCTAssertEqual((result["turns"] as? [[String: Any]])?.last?["text"] as? String, "A complete answer.")
+        remainingDots = try await bridge.webView.evaluateJavaScript(
+            "document.querySelectorAll('.mdv-agent-dot').length")
+        XCTAssertEqual(remainingDots as? Int, 0)
+    }
+
+    func testCapsuleKeepsNativeInputAndWebSendHitRegionsSeparate() async throws {
+        AgentFixtureProtocol.queue.reset([])
+        let (_, bridge, _, _) = try await reader("# Document\n")
+        _ = try await bridge.call("toggleAgent")
+        let input = try XCTUnwrap(
+            bridge.webView.superview?.subviews.compactMap { $0 as? ConversationTextView }.first)
+        XCTAssertFalse(input.isDescendant(of: bridge.webView))
+        try await wait { !input.isHidden && input.frame.width > 0 }
+        let pixel = 1 / bridge.webView.traitCollection.displayScale
+        for text in ["A short question", String(repeating: "A longer question on several lines. ", count: 20)] {
+            _ = try await bridge.webView.callAsyncJavaScript(
+                "const input = document.querySelector('.mdv-agent-input'); input.value = text; input.dispatchEvent(new Event('input', {bubbles:true}));",
+                arguments: ["text": text], in: nil, contentWorld: .page)
+            try await wait { input.text == text }
+            var field = CGRect.zero
+            var button = CGRect.zero
+            // Web layout and its native projection cross an asynchronous bridge.
+            // Compare one settled layout, allowing only physical pixel precision.
+            try await wait {
+                let values = try await bridge.webView.evaluateJavaScript(
+                    "(() => { const panel = document.querySelector('.mdv-agent'); if (panel.getAnimations().length) return null; return ['.mdv-agent-input','.mdv-agent-send'].flatMap(selector => { const r = panel.querySelector(selector).getBoundingClientRect(); return [r.x,r.y,r.width,r.height]; }); })()"
+                )
+                guard let rect = values as? [Double] else { return false }
+                field = CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3])
+                button = CGRect(x: rect[4], y: rect[5], width: rect[6], height: rect[7])
+                let nativeFrame = input.convert(input.bounds, to: bridge.webView)
+                return abs(nativeFrame.minX - field.minX) <= pixel
+                    && abs(nativeFrame.minY - field.minY) <= pixel
+                    && abs(nativeFrame.width - field.width) <= pixel
+                    && abs(nativeFrame.height - field.height) <= pixel
+            }
+            XCTAssertFalse(field.intersects(button), "The input and send control must have separate layout regions")
+            for x in [button.minX + pixel / 2, button.midX, button.maxX - pixel / 2] {
+                for y in [button.minY + pixel / 2, button.midY, button.maxY - pixel / 2] {
+                    let hit = bridge.webView.hitTest(CGPoint(x: x, y: y), with: nil)
+                    XCTAssertFalse(hit === input || hit?.isDescendant(of: input) == true)
+                }
+            }
+            XCTAssertGreaterThanOrEqual(button.width, 44)
+            XCTAssertGreaterThanOrEqual(button.height, 44)
+        }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 0)
+    }
+
+    func testAdaptivePanelsShareWidthPolicyAndPreserveConversationAndNavigation() async throws {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: String(repeating: "An answer paragraph to retain while changing panels.\n\n", count: 40))
+        ])
+        let markdown =
+            "# Reading\n\n"
+            + (1...35).map {
+                "## Chapter \($0)\n\n" + String(repeating: "Document paragraph for reading.\n\n", count: 8)
+                    + "### Detail \($0)\n\nMore content.\n\n"
+            }.joined()
+        let (session, bridge, _, _) = try await reader(markdown)
+        func settled() async throws {
+            try await wait {
+                try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(a=>a.playState==='finished')"
+                ) as? Bool == true
+            }
+        }
+        func resize(_ width: Double, _ height: Double = 1000) async throws {
+            bridge.webView.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            try await wait {
+                let geometry =
+                    try await bridge.webView.evaluateJavaScript(
+                        "[innerWidth,innerHeight,document.querySelector('.mdv-app').clientWidth]") as? [Double]
+                return geometry == [width, height, width]
+            }
+            try await settled()
+        }
+        func panels(outline: Bool, agent: Bool, sheet: Bool) async throws {
+            try await wait {
+                session.outlineExpanded == outline && session.agentOpen == agent && session.agentModalActive == sheet
+            }
+            try await settled()
+            let status = try await self.state(bridge)
+            XCTAssertEqual(status["draft"] as? String, "Draft kept across layouts")
+            XCTAssertEqual((status["turns"] as? [[String: Any]])?.count, 2)
+        }
+        func openAI() async throws {
+            _ = try await bridge.call("toggleAgent")
+            try await wait { session.agentOpen }
+        }
+        try await resize(1376)
+        if !session.outlineExpanded { _ = try await bridge.call("toggleOutline") }
+        try await openAI()
+        try await send("Keep this conversation", bridge: bridge)
+        try await completed(bridge)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const input=document.querySelector('.mdv-agent-input'); input.value='Draft kept across layouts'; input.dispatchEvent(new Event('input',{bubbles:true}));"
+        )
+        try await panels(outline: true, agent: true, sheet: false)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const conversation=document.querySelector('.mdv-agent-scroll'); conversation.dispatchEvent(new WheelEvent('wheel',{deltaY:-100})); conversation.scrollTop=80;"
+        )
+        _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 120])
+        try await wait { try await bridge.webView.evaluateJavaScript("window.scrollY > 0") as? Bool == true }
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const body=document.querySelector('.mdv-outline-body'); body.dispatchEvent(new WheelEvent('wheel',{deltaY:100,bubbles:true})); body.scrollTop=120; const chapter=document.querySelector('.mdv-article h2'); const chapterToggle=document.querySelector('[data-toc-target=\"'+chapter.id+'\"]').parentElement.querySelector('[data-collapse-heading]'); chapterToggle.click();"
+        )
+        try await resize(834)
+        try await panels(outline: true, agent: false, sheet: false)
+        let anchor = try await bridge.call("diagnostics") as? [String: Any]
+        let position = try XCTUnwrap(anchor?["anchor"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(position["line"] as? Double), 120, accuracy: 1)
+        try await openAI()
+        try await panels(outline: false, agent: true, sheet: false)
+        let conversationPosition =
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-agent-scroll').scrollTop") as? Double
+        XCTAssertEqual(
+            try XCTUnwrap(conversationPosition), 80, accuracy: 1,
+            "Switching auxiliary panels must preserve manual conversation browsing")
+        let geometry =
+            try await bridge.webView.evaluateJavaScript(
+                "(() => { const r=document.querySelector('.mdv-reader').getBoundingClientRect(), a=document.querySelector('.mdv-agent').getBoundingClientRect(); return [r.width,r.right,a.left,a.width]; })()"
+            ) as? [Double]
+        let widths = try XCTUnwrap(geometry)
+        XCTAssertGreaterThanOrEqual(widths[0], 420)
+        XCTAssertGreaterThanOrEqual(widths[2] - widths[1], 15)
+        XCTAssertEqual(widths[3], 320, accuracy: 1)
+        XCTAssertEqual(session.agentReservedWidth, 352, accuracy: 1)
+        _ = try await bridge.call("toggleOutline")
+        try await panels(outline: true, agent: false, sheet: false)
+        let navigationKept =
+            try await bridge.webView.evaluateJavaScript(
+                "chapterToggle.getAttribute('aria-expanded')==='false' && document.querySelector('.mdv-outline-body').scrollTop > 0"
+            ) as? Bool
+        XCTAssertEqual(navigationKept, true)
+        try await openAI()
+        try await resize(834, 430)
+        try await panels(outline: false, agent: true, sheet: false)
+        try await resize(1376)
+        try await panels(outline: false, agent: true, sheet: false)
+        _ = try await bridge.call("toggleOutline")
+        try await panels(outline: true, agent: true, sheet: false)
+        _ = try await bridge.call("agentInteraction")
+        try await resize(834)
+        try await panels(outline: false, agent: true, sheet: false)
+        try await resize(500)
+        try await panels(outline: false, agent: true, sheet: true)
+        _ = try await bridge.call("toggleOutline")
+        try await panels(outline: true, agent: false, sheet: false)
+        XCTAssertEqual(session.agentReservedWidth, 0)
+        _ = try await bridge.call("toggleOutline")
+        try await panels(outline: false, agent: false, sheet: false)
+        for _ in 0..<3 {
+            try await openAI()
+            _ = try await bridge.call("toggleOutline")
+        }
+        try await panels(outline: true, agent: false, sheet: false)
+        try await resize(1376)
+        try await panels(outline: true, agent: false, sheet: false)
+        try await sourceMode(bridge)
+        _ = try await bridge.call("scrollToSourceLine", arguments: ["payload": 120])
+        let sourcePosition = bridge.sourceEditor.capturePosition().line
+        try await openAI()
+        try await settled()
+        XCTAssertEqual(bridge.sourceEditor.capturePosition().line, sourcePosition, accuracy: 1)
+        try await resize(834)
+        XCTAssertEqual(bridge.sourceEditor.capturePosition().line, sourcePosition, accuracy: 1)
+    }
+
+    private func scrollingConversation() async throws -> ReaderBridge {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(
+                text: String(repeating: "A paragraph in the answer.\n\n", count: 20), waitsAfterText: true,
+                complete: false)
+        ])
+        let (_, bridge, _, _) = try await reader("# Document\n\nContent.\n")
+        _ = try await bridge.call("toggleAgent")
+        // Programmatic scroll offsets are meaningful after the panel's
+        // presentation has settled, rather than during its moving transform.
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "(() => { const panel = document.querySelector('.mdv-agent'); return !panel.hidden && !panel.inert && panel.getAnimations().length === 0; })()"
+            ) as? Bool == true
+        }
+        try await send("Explain the document", bridge: bridge)
+        try await wait {
+            (try await self.state(bridge)["turns"] as? [[String: Any]])?.last?["state"] as? String == "streaming"
+        }
+        // Streaming starts while individual answer blocks are still entering.
+        // This geometry test needs the complete rendered surface, including
+        // those child animations, before assigning programmatic scroll offsets.
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-app').getAnimations({subtree:true}).every(animation => animation.playState === 'finished')"
+            ) as? Bool == true
+        }
+        return bridge
+    }
+
+    func testReplyFollowsViewportChangesAndYieldsToManualBrowsing() async throws {
+        let bridge = try await scrollingConversation()
+        let atBottom =
+            "(() => { const s = document.querySelector('.mdv-agent-scroll'); return Math.abs(s.scrollHeight - s.clientHeight - s.scrollTop) < 1; })()"
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').style.maxHeight = '96px'")
+        try await wait(timeout: 3) { try await bridge.webView.evaluateJavaScript(atBottom) as? Bool == true }
+
+        _ = try await bridge.webView.evaluateJavaScript(
+            "(() => { const s = document.querySelector('.mdv-agent-scroll'); s.dispatchEvent(new WheelEvent('wheel', {deltaY:-100})); s.scrollTop = 0; s.style.maxHeight = '140px'; })()"
+        )
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-agent-scroll').clientHeight === 140") as? Bool == true
+        }
+        let manualPosition = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').scrollTop")
+        XCTAssertEqual(manualPosition as? Double, 0)
+        _ = try await bridge.webView.evaluateJavaScript(
+            "(() => { const s = document.querySelector('.mdv-agent-scroll'); s.scrollTop = s.scrollHeight; s.dispatchEvent(new WheelEvent('wheel', {deltaY:100})); })()"
+        )
+        _ = try await bridge.webView.callAsyncJavaScript(
+            "await new Promise(requestAnimationFrame); document.querySelector('.mdv-agent-scroll').style.maxHeight = '80px';",
+            arguments: [:], in: nil, contentWorld: .page)
+        try await wait(timeout: 3) { try await bridge.webView.evaluateJavaScript(atBottom) as? Bool == true }
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+    }
+
+    func testConversationFollowingSurvivesReturningToBottomAndResizingInTheSameFrame() async throws {
+        let bridge = try await scrollingConversation()
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').style.maxHeight = '140px'")
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "(() => { const s = document.querySelector('.mdv-agent-scroll'); return s.clientHeight === 140 && Math.abs(s.scrollHeight - s.clientHeight - s.scrollTop) < 1; })()"
+            ) as? Bool == true
+        }
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const s = document.querySelector('.mdv-agent-scroll');
+                const measure = () => ({ top: s.scrollTop, height: s.clientHeight, total: s.scrollHeight,
+                  gap: s.scrollHeight - s.clientHeight - s.scrollTop });
+                const frame = () => new Promise(requestAnimationFrame);
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                s.scrollTop = 0;
+                await frame();
+                await frame();
+                const browsing = measure();
+                s.scrollTop = s.scrollHeight;
+                const returned = measure();
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }));
+                s.style.maxHeight = '80px';
+                const resized = measure();
+                await frame();
+                await frame();
+                return { browsing, returned, resized, settled: measure() };
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: [String: Double]]
+        let positions = try XCTUnwrap(result)
+        XCTAssertEqual(positions["browsing"]?["top"], 0, "Manual browsing: \(positions)")
+        XCTAssertEqual(try XCTUnwrap(positions["returned"]?["gap"]), 0, accuracy: 1, "Return: \(positions)")
+        XCTAssertEqual(positions["settled"]?["height"], 80)
+        XCTAssertEqual(try XCTUnwrap(positions["settled"]?["gap"]), 0, accuracy: 1, "Resize: \(positions)")
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+    }
+
+    func testPendingConversationFollowYieldsToNewerUpwardNavigation() async throws {
+        let bridge = try await scrollingConversation()
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').style.maxHeight = '140px'")
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "(() => { const s = document.querySelector('.mdv-agent-scroll'); return s.clientHeight === 140 && Math.abs(s.scrollHeight - s.clientHeight - s.scrollTop) < 1; })()"
+            ) as? Bool == true
+        }
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const s = document.querySelector('.mdv-agent-scroll');
+                const frame = () => new Promise(requestAnimationFrame);
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                s.scrollTop = 0;
+                await frame();
+                await frame();
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: 100 }));
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                s.scrollTop = s.scrollHeight - s.clientHeight - 20;
+                const manual = s.scrollTop;
+                await frame();
+                await frame();
+                s.style.maxHeight = '80px';
+                await frame();
+                await frame();
+                return { manual, actual: s.scrollTop, gap: s.scrollHeight - s.clientHeight - s.scrollTop };
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Double]
+        let positions = try XCTUnwrap(result)
+        XCTAssertEqual(
+            try XCTUnwrap(positions["actual"]), try XCTUnwrap(positions["manual"]), accuracy: 1,
+            "A queued downward action must not override newer upward navigation: \(positions)")
+        XCTAssertGreaterThan(try XCTUnwrap(positions["gap"]), 56)
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
+    }
+
+    func testTouchFollowingResumesWhenMomentumReachesTheEndAfterRelease() async throws {
+        let bridge = try await scrollingConversation()
+        _ = try await bridge.webView.evaluateJavaScript(
+            "document.querySelector('.mdv-agent-scroll').style.maxHeight = '140px'")
+        try await wait {
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-agent-scroll').clientHeight === 140") as? Bool == true
+        }
+        let result =
+            try await bridge.webView.callAsyncJavaScript(
+                """
+                const s = document.querySelector('.mdv-agent-scroll');
+                const frame = () => new Promise(requestAnimationFrame);
+                const touch = (type, y) => {
+                  const event = new Event(type);
+                  Object.defineProperty(event, 'touches', { value: y === null ? [] : [{ clientY: y }] });
+                  s.dispatchEvent(event);
+                };
+                s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100 }));
+                s.scrollTop = 0;
+                await frame();
+                await frame();
+                touch('touchstart', 200);
+                touch('touchmove', 100);
+                touch('touchend', null);
+                await frame();
+                await frame();
+                // Momentum can reach the end later than the touchend callback.
+                s.scrollTop = s.scrollHeight;
+                await frame();
+                await frame();
+                const returnedGap = s.scrollHeight - s.clientHeight - s.scrollTop;
+                s.style.maxHeight = '80px';
+                await frame();
+                await frame();
+                return { returnedGap, resizedGap: s.scrollHeight - s.clientHeight - s.scrollTop };
+                """, arguments: [:], in: nil, contentWorld: .page) as? [String: Double]
+        let positions = try XCTUnwrap(result)
+        XCTAssertEqual(try XCTUnwrap(positions["returnedGap"]), 0, accuracy: 1)
+        XCTAssertEqual(
+            try XCTUnwrap(positions["resizedGap"]), 0, accuracy: 1,
+            "Downward touch momentum must restore following: \(positions)")
+        _ = try await bridge.webView.evaluateJavaScript("document.querySelector('.mdv-agent-send').click()")
     }
 
     private func selectSource(_ text: String, bridge: ReaderBridge) throws {
@@ -719,4 +1154,221 @@ final class AgentFlowTests: AgentReaderTestCase {
             XCTAssertEqual((last["tools"] as? [[String: Any]])?.count, progress ? 2 : 0)
         }
     }
+    func testStandaloneAndMixedImageReferencesSendPixelsAndKeepSnapshots() async throws {
+        for api in ModelAPIProtocol.allCases {
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(text: "The image is red."), AgentFixture(text: "The earlier image stays red."),
+            ])
+            let markdown =
+                "# Image note\n\nBefore ![diagram][figure] after.\n\n[figure]: pictures/shape.png\n\n```md\n![not an image](secret.png)\n```\n\n`![also not an image](private.png)`\n"
+            let (_, bridge, _, url) = try await reader(markdown, api: api)
+            let folder = url.deletingLastPathComponent().appendingPathComponent("pictures")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            func pixels(_ color: UIColor) -> Data {
+                UIGraphicsImageRenderer(size: CGSize(width: 160, height: 80)).pngData { context in
+                    color.setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 160, height: 80))
+                }
+            }
+            try pixels(.red).write(to: folder.appendingPathComponent("shape.png"))
+            _ = try await bridge.call("reloadResources")
+            let capturedReference = try await bridge.call("imageContext", arguments: ["payload": 0])
+            let reference = try XCTUnwrap(capturedReference as? [String: Any])
+            XCTAssertEqual((reference["images"] as? [[String: String]])?.count, 1)
+            XCTAssertEqual((reference["images"] as? [[String: String]])?.first?["source"], "pictures/shape.png")
+            _ = try await bridge.call("askImage", arguments: ["payload": reference])
+            try await wait { (try await self.state(bridge))["referenceHTML"] as? String != nil }
+            let quote = try await state(bridge)["referenceHTML"] as? String ?? ""
+            XCTAssertTrue(quote.contains("<img"))
+            try await send("What is shown?", bridge: bridge)
+            try await completed(bridge)
+            let first = try ModelWireFormat.object(AgentFixtureProtocol.queue.requests()[0])
+            let transmitted = try XCTUnwrap(first[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            let parts = try XCTUnwrap(transmitted.last?["content"] as? [[String: Any]])
+            XCTAssertEqual(
+                parts.filter { $0["type"] as? String == (api == .responses ? "input_image" : "image_url") }.count, 1)
+            let context = try ModelWireFormat.object(Data(XCTUnwrap(parts.first?["text"] as? String).utf8))
+            let inventory = try XCTUnwrap((context["background"] as? [String: Any])?["images"] as? [[String: Any]])
+            XCTAssertEqual(inventory.count, 1, "Image-looking code and unused paths must not become image tools")
+            XCTAssertNil(first["tools"], "All selected pixels are already present; no image read tool is needed")
+            let imageURL: String? =
+                api == .responses
+                ? parts.last?["image_url"] as? String : (parts.last?["image_url"] as? [String: String])?["url"]
+            XCTAssertTrue(imageURL?.hasPrefix("data:image/png;base64,") == true)
+            try pixels(.blue).write(to: folder.appendingPathComponent("shape.png"))
+            try await send("What did the previous picture show?", bridge: bridge)
+            try await completed(bridge, count: 4)
+            let second = try ModelWireFormat.object(AgentFixtureProtocol.queue.requests()[1])
+            let messages = try XCTUnwrap(second[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            let continuedParts = try XCTUnwrap(messages.last?["content"] as? [[String: Any]])
+            let continuedURL: String? =
+                api == .responses
+                ? continuedParts.last?["image_url"] as? String
+                : (continuedParts.last?["image_url"] as? [String: String])?["url"]
+            XCTAssertEqual(continuedURL, imageURL, "A later question must receive the original sent pixels")
+            _ = try await bridge.webView.evaluateJavaScript(
+                "document.querySelector('.mdv-message-reference summary').click()")
+            let frozenQuote =
+                try await bridge.webView.evaluateJavaScript(
+                    "document.querySelector('.mdv-message-reference img').getAttribute('src')") as? String
+            XCTAssertTrue(frozenQuote?.hasPrefix("jm-image:") == true)
+            try await wait { (try await self.state(bridge))["turns"] as? [[String: Any]] != nil }
+        }
+    }
+
+    func testGlobalImageToolLoadsOnlyTheRequestedPictureInPreview() async throws {
+        for api in ModelAPIProtocol.allCases {
+            AgentFixtureProtocol.queue.reset([
+                AgentFixture(calls: [ModelToolCall(id: "read-picture", name: "read_image", arguments: "$first-image")]),
+                AgentFixture(text: "One requested picture was read."),
+            ])
+            let markdown = "# Images\n\n![First](first.svg)\n\n![Do not load](missing.png)\n"
+            let (session, bridge, _, url) = try await reader(markdown, api: api)
+            let svg =
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"80\" height=\"40\"><rect width=\"80\" height=\"40\" fill=\"red\"/></svg>"
+            try Data(svg.utf8).write(to: url.deletingLastPathComponent().appendingPathComponent("first.svg"))
+            _ = try await bridge.call("toggleAgent")
+            try await send("Read the first picture, leave the second one alone.", bridge: bridge)
+            try await completed(bridge)
+            let requests = AgentFixtureProtocol.queue.requests()
+            XCTAssertEqual(
+                requests.count, 2, "The model explicitly asks for one image, then receives its actual pixels")
+            let initial = try ModelWireFormat.object(requests[0])
+            let items = try XCTUnwrap(initial[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            XCTAssertTrue(
+                items.last?["content"] is String, "Global entry sends the inventory without eagerly attaching pixels")
+            let tools = try XCTUnwrap(initial["tools"] as? [[String: Any]])
+            let names = tools.compactMap {
+                (api == .responses ? $0 : $0["function"] as? [String: Any] ?? [:])["name"] as? String
+            }
+            XCTAssertEqual(names, ["read_image"], "Preview must never offer document edit tools")
+            let subsequent = try ModelWireFormat.object(requests[1])
+            let subsequentItems = try XCTUnwrap(
+                subsequent[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            let imageParts =
+                api == .responses
+                ? (subsequentItems.first { $0["type"] as? String == "function_call_output" })?["output"]
+                    as? [[String: Any]]
+                : subsequentItems.last?["content"] as? [[String: Any]]
+            let picture = try XCTUnwrap(imageParts?.last)
+            let imageURL: String? =
+                api == .responses
+                ? picture["image_url"] as? String : (picture["image_url"] as? [String: String])?["url"]
+            XCTAssertTrue(imageURL?.hasPrefix("data:image/png;base64,") == true)
+            XCTAssertEqual(session.agentImages.loadedIDs.count, 1)
+            XCTAssertEqual(session.document?.text, markdown)
+        }
+    }
+
+    func testMixedTextAndImageSelectionPreservesBothAndSourceReferenceImagesResolve() async throws {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: "Mixed quote read."), AgentFixture(text: "Source image read."),
+        ])
+        let markdown =
+            "# Note\n\nBefore ![diagram][figure] after.\n\n[figure]: picture.png\n\n```md\n![code-only](private.png)\n```\n"
+        let (_, bridge, _, url) = try await reader(markdown, api: .responses)
+        let pixels = UIGraphicsImageRenderer(size: CGSize(width: 80, height: 40)).pngData { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 80, height: 40))
+        }
+        try pixels.write(to: url.deletingLastPathComponent().appendingPathComponent("picture.png"))
+        _ = try await bridge.webView.evaluateJavaScript(
+            "const range=document.createRange(); range.selectNodeContents(document.querySelector('.mdv-article p')); getSelection().removeAllRanges(); getSelection().addRange(range);"
+        )
+        _ = try await bridge.call("askSelection")
+        var quote = try await state(bridge)["referenceHTML"] as? String ?? ""
+        XCTAssertTrue(quote.contains("Before"))
+        XCTAssertTrue(quote.contains("after."))
+        XCTAssertTrue(quote.contains("<img"))
+        try await send("Explain the quote.", bridge: bridge)
+        try await completed(bridge)
+        _ = try await bridge.call("closeAgent")
+        try await wait { !bridge.session.agentModalActive }
+        try await sourceMode(bridge)
+        try selectSource("![diagram][figure]", bridge: bridge)
+        _ = try await bridge.call("askSelection")
+        quote = try await state(bridge)["referenceHTML"] as? String ?? ""
+        XCTAssertTrue(
+            quote.contains("<img"), "Reference-style source images use definitions from the complete document")
+        try await send("Read this image.", bridge: bridge)
+        try await completed(bridge, count: 4)
+        let requests = AgentFixtureProtocol.queue.requests()
+        for request in requests {
+            let body = try ModelWireFormat.object(request)
+            let items = try XCTUnwrap(body["input"] as? [[String: Any]])
+            XCTAssertTrue(
+                (items.last?["content"] as? [[String: Any]])?.contains { $0["type"] as? String == "input_image" }
+                    == true)
+        }
+    }
+
+    func testImageMenuActionUsesCapturedReferenceAndRejectsAStaleMode() async throws {
+        AgentFixtureProtocol.queue.reset([])
+        let (session, bridge, _, _) = try await reader("# Pictures\n\n![Diagram](diagram.svg)\n")
+        let actionCount =
+            try await bridge.webView.evaluateJavaScript(
+                "document.querySelectorAll('.mdv-article .jm-image-action').length") as? Int
+        XCTAssertEqual(actionCount, 1)
+        let payload = try await bridge.call("imageContext", arguments: ["payload": 0])
+        let data = try JSONSerialization.data(withJSONObject: XCTUnwrap(payload))
+        let reference = try JSONDecoder().decode(AgentAttachment.self, from: data)
+        let host = try XCTUnwrap(bridge.imageMenu)
+        let interaction = try XCTUnwrap(bridge.webView.interactions.compactMap { $0 as? UIEditMenuInteraction }.first)
+        func action(_ id: String) throws -> UIAction {
+            let config = UIEditMenuConfiguration(identifier: id as NSString, sourcePoint: CGPoint(x: 50, y: 100))
+            host.show(id: id, token: session.documentToken, reference: reference, point: config.sourcePoint)
+            return try XCTUnwrap(
+                host.editMenuInteraction(interaction, menuFor: config, suggestedActions: [])?.children.first
+                    as? UIAction)
+        }
+        let first = try action("captured-image")
+        let button = UIButton()
+        button.addAction(first, for: .touchUpInside)
+        button.sendActions(for: .touchUpInside)
+        try await wait { (try await self.state(bridge))["open"] as? Bool == true }
+        let quote = try await state(bridge)["referenceHTML"] as? String ?? ""
+        XCTAssertTrue(quote.contains("diagram.svg"))
+        XCTAssertTrue(quote.contains("<img"))
+        _ = try await bridge.call("closeAgent")
+        try await wait { !session.agentModalActive }
+        let stale = try action("old-mode")
+        try await sourceMode(bridge)
+        let oldButton = UIButton()
+        oldButton.addAction(stale, for: .touchUpInside)
+        oldButton.sendActions(for: .touchUpInside)
+        XCTAssertFalse(
+            session.agentOpen, "A dismissed image menu must not reopen an old preview reference in source mode")
+        XCTAssertEqual(
+            AgentFixtureProtocol.queue.requests().count, 0, "Showing and choosing the menu never sends a model request")
+    }
+
+    func testSourceImageSyntaxInsideCodeDoesNotAttachPixels() async throws {
+        AgentFixtureProtocol.queue.reset([
+            AgentFixture(text: "Code."), AgentFixture(text: "Code."), AgentFixture(text: "Code."),
+        ])
+        let markdown =
+            "# Examples\n\n![Real](same.png)\n\n`![Inline](same.png)`\n\n```md\n![Fence](same.png)\n```\n\n    ![Indented](same.png)\n"
+        let (_, bridge, _, _) = try await reader(markdown, api: .responses)
+        try await sourceMode(bridge)
+        for (index, literal) in ["![Inline](same.png)", "![Fence](same.png)", "![Indented](same.png)"].enumerated() {
+            try selectSource(literal, bridge: bridge)
+            _ = try await bridge.call("askSelection")
+            let quote = try await state(bridge)["referenceHTML"] as? String ?? ""
+            XCTAssertTrue(quote.contains("<code"))
+            XCTAssertFalse(
+                quote.contains("<img"),
+                "Image-looking code is literal text even when its URL also appears as a real image")
+            try await send("Explain this code.", bridge: bridge)
+            try await completed(bridge, count: (index + 1) * 2)
+            _ = try await bridge.call("closeAgent")
+            try await wait { !bridge.session.agentModalActive }
+        }
+        XCTAssertEqual(AgentFixtureProtocol.queue.requests().count, 3)
+        for request in AgentFixtureProtocol.queue.requests() {
+            let body = try ModelWireFormat.object(request)
+            let items = try XCTUnwrap(body["input"] as? [[String: Any]])
+            XCTAssertTrue(items.last?["content"] is String, "No code example may trigger eager image reads")
+        }
+    }
+
 }

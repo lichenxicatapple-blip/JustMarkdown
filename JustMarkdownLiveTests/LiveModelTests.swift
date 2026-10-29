@@ -1,3 +1,4 @@
+import NaturalLanguage
 import UIKit
 import WebKit
 import XCTest
@@ -6,6 +7,41 @@ import XCTest
 
 @MainActor
 final class LiveModelTests: AgentReaderTestCase {
+    private struct LiveConfiguration: Decodable {
+        let baseURL: String
+        let model: String
+        let key: String
+        let apiProtocol: String?
+    }
+
+    private func liveConfiguration() throws -> (LiveConfiguration, [ModelAPIProtocol]) {
+        let path = try XCTUnwrap(
+            ProcessInfo.processInfo.environment["JUSTMARKDOWN_LIVE_CONFIG"],
+            "Real provider verification requires a private external configuration file")
+        let live = try JSONDecoder().decode(
+            LiveConfiguration.self,
+            from: Data(contentsOf: URL(fileURLWithPath: (path as NSString).expandingTildeInPath)))
+        let endpoint = try ModelConfiguration(baseURL: live.baseURL, model: live.model).endpoint()
+        guard endpoint.scheme == "https", endpoint.host == "api.atlascloud.ai",
+            endpoint.port == nil || endpoint.port == 443, !live.key.isEmpty
+        else { throw ModelError.configuration }
+        if let name = live.apiProtocol {
+            guard let api = ModelAPIProtocol(rawValue: name) else { throw ModelError.configuration }
+            return (live, [api])
+        }
+        return (live, ModelAPIProtocol.allCases)
+    }
+
+    private func isolatedCredential(_ key: String) throws -> String {
+        let service = "dev.catli.JustMarkdown.model.live-testing." + UUID().uuidString
+        addTeardownBlock { try ModelKeychain.delete(service: service) }
+        try ModelKeychain.write(key, service: service)
+        XCTAssertTrue(
+            ModelKeychain.read(service: service) == key,
+            "The live credential must be read through an isolated Keychain service")
+        return service
+    }
+
     private func liveCompleted(_ bridge: ReaderBridge, count: Int = 2) async throws {
         try await wait(timeout: 90) {
             let snapshot = try await self.state(bridge)
@@ -30,38 +66,8 @@ final class LiveModelTests: AgentReaderTestCase {
 
     /// Secrets live outside the repository and are never attached to test reports.
     func testAtlasProtocolsConversationAndSourceEdit() async throws {
-        let path = try XCTUnwrap(
-            ProcessInfo.processInfo.environment["JUSTMARKDOWN_LIVE_CONFIG"],
-            "Real provider verification requires a private external configuration file")
-        struct LiveConfiguration: Decodable {
-            let baseURL: String
-            let model: String
-            let key: String
-            let apiProtocol: String?
-        }
-        let live = try JSONDecoder().decode(
-            LiveConfiguration.self,
-            from: Data(contentsOf: URL(fileURLWithPath: (path as NSString).expandingTildeInPath)))
-        let configuration = ModelConfiguration(baseURL: live.baseURL, model: live.model)
-        let endpoint = try configuration.endpoint()
-        guard endpoint.scheme == "https", endpoint.host == "api.atlascloud.ai",
-            endpoint.port == nil || endpoint.port == 443, !live.key.isEmpty
-        else {
-            throw ModelError.configuration
-        }
-        let protocols: [ModelAPIProtocol]
-        if let name = live.apiProtocol {
-            guard let api = ModelAPIProtocol(rawValue: name) else { throw ModelError.configuration }
-            protocols = [api]
-        } else {
-            protocols = ModelAPIProtocol.allCases
-        }
-        let keychainService = "dev.catli.JustMarkdown.model.live-testing." + UUID().uuidString
-        addTeardownBlock { try ModelKeychain.delete(service: keychainService) }
-        try ModelKeychain.write(live.key, service: keychainService)
-        XCTAssertTrue(
-            ModelKeychain.read(service: keychainService) == live.key,
-            "The live credential must be read through an isolated Keychain service")
+        let (live, protocols) = try liveConfiguration()
+        let keychainService = try isolatedCredential(live.key)
         let sentence = "活动安排在周日。"
         let replacement = "活动改在周六。"
         let original =
@@ -82,9 +88,10 @@ final class LiveModelTests: AgentReaderTestCase {
             try await liveCompleted(bridge, count: 4)
             result = try await state(bridge)
             answer = (result["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+            let modeName = answer.replacingOccurrences(of: "“", with: "").replacingOccurrences(of: "”", with: "")
             XCTAssertTrue(
-                ["源码", "源代码", "source"].contains { answer.lowercased().contains($0) },
-                "Preview must redirect edits to source; legitimate wording can vary")
+                ["源码模式", "source mode"].contains { modeName.lowercased().contains($0) },
+                "Preview must name source mode when redirecting an edit request")
             XCTAssertEqual(session.document?.text, original)
             await session.closeAgent()
             try await wait { !session.agentModalActive }
@@ -115,6 +122,14 @@ final class LiveModelTests: AgentReaderTestCase {
             XCTAssertEqual(session.document?.text, applied)
             await session.flushChanges()
             XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), applied)
+            try await send(
+                "Qual è adesso il giorno dell'incontro? Spiega brevemente lo schedule in due frasi.", bridge: bridge)
+            try await liveCompleted(bridge, count: 10)
+            result = try await state(bridge)
+            answer = (result["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+            XCTAssertEqual(NLLanguageRecognizer.dominantLanguage(for: answer), .italian)
+            XCTAssertTrue(answer.lowercased().contains("sabato"), "Follow the current document rather than old replies")
+            XCTAssertEqual(session.document?.text, applied, "A follow-up reading question does not authorize an edit")
             let evidence = try await state(bridge)
             let turns = (evidence["turns"] as? [[String: Any]] ?? []).map { turn in
                 turn.filter { ["role", "state", "text"].contains($0.key) }
@@ -143,4 +158,131 @@ final class LiveModelTests: AgentReaderTestCase {
             add(attachment)
         }
     }
+
+    func testAtlasPromptLanguageFallbackOutputFormatAndImageBoundary() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let service = try isolatedCredential(live.key)
+        let markdown = "# 读书会\n\n活动在周六举行。\n\n![活动照片](images/meeting.png)\n"
+        let document = AgentAttachment(
+            text: markdown, markdown: markdown, mode: "preview", scope: "document", location: nil,
+            start: nil, end: nil)
+        let cases: [(question: String, fallback: String, language: NLLanguage?)] = [
+            ("¿Qué día es la reunión? Explica brevemente el schedule en dos frases.", "zh-Hans", .spanish),
+            ("请用法语介绍读书会安排，写两句话。", "en", .french),
+            ("?", "en", .english),
+            ("?", "zh-Hans", .simplifiedChinese),
+            ("图片里有几个人？只返回 JSON，people 为可确认的人数，没有图像可确认时为 null。", "en", nil),
+        ]
+        for api in protocols {
+            for item in cases {
+                let snapshot = AgentSnapshot(
+                    question: item.question, attachment: nil,
+                    history: [.init(role: "user", markdown: item.question, attachment: nil, document: document)],
+                    document: document)
+                let messages = try AgentContextBuilder.build(
+                    snapshot, intent: "question", appLanguage: item.fallback)
+                let result = try await ModelClient().stream(
+                    configuration: ModelConfiguration(baseURL: live.baseURL, model: live.model, apiProtocol: api),
+                    key: XCTUnwrap(ModelKeychain.read(service: service)), messages: messages,
+                    onText: { _ in })
+                let evidence = XCTAttachment(
+                    string: "Model: \(live.model)\nProtocol: \(api.title)\nFallback: \(item.fallback)"
+                        + "\nQuestion: \(item.question)\nAnswer: \(result.text)")
+                evidence.name = "Atlas-\(api.rawValue)-language-and-input-boundary"
+                evidence.lifetime = .keepAlways
+                add(evidence)
+                if let language = item.language {
+                    XCTAssertEqual(NLLanguageRecognizer.dominantLanguage(for: result.text), language)
+                } else {
+                    let answer = try ModelWireFormat.object(Data(result.text.utf8))
+                    XCTAssertEqual(
+                        Set(answer.keys), ["people"], "Honor the requested JSON format without a record wrapper")
+                    XCTAssertTrue(answer["people"] is NSNull, "Text image references do not provide image pixels")
+                }
+            }
+        }
+    }
+
+    func testAtlasSelectedImageVisionAndFollowUp() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let service = try isolatedCredential(live.key)
+        for api in protocols {
+            let markdown = "# Field note\n\n![Observation](pictures/observation.png)\n"
+            let (_, bridge, _, url) = try await makeReader(
+                markdown, api: api, baseURL: live.baseURL, model: live.model,
+                modelClient: ModelClient(), modelKey: { ModelKeychain.read(service: service) })
+            let folder = url.deletingLastPathComponent().appendingPathComponent("pictures")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let image = visionOracle(redCircles: 3, blueSquares: 1)
+            try image.write(to: folder.appendingPathComponent("observation.png"))
+            _ = try await bridge.call("reloadResources")
+            let context = try await bridge.call("imageContext", arguments: ["payload": 0])
+            _ = try await bridge.call("askImage", arguments: ["payload": try XCTUnwrap(context)])
+            try await send(
+                "Count the red circles and blue squares in this image. Return only JSON with integer redCircles and blueSquares fields.",
+                bridge: bridge)
+            try await liveCompleted(bridge)
+            try await assertVisionAnswer(bridge, red: 3, blue: 1)
+            // The file now contains a different picture. A question about the
+            // already-sent image must retain its original visual evidence.
+            try visionOracle(redCircles: 1, blueSquares: 2).write(to: folder.appendingPathComponent("observation.png"))
+            try await send(
+                "For the image I previously selected, give the same two counts again. Do not read the current file. Return only the same JSON fields.",
+                bridge: bridge)
+            try await liveCompleted(bridge, count: 4)
+            try await assertVisionAnswer(bridge, red: 3, blue: 1)
+        }
+    }
+
+    func testAtlasReadsDocumentImageOnDemand() async throws {
+        let (live, protocols) = try liveConfiguration()
+        let service = try isolatedCredential(live.key)
+        for api in protocols {
+            let markdown = "# Observations\n\n![First observation](observation.png)\n\n![Unrelated](unavailable.png)\n"
+            let (session, bridge, _, url) = try await makeReader(
+                markdown, api: api, baseURL: live.baseURL, model: live.model,
+                modelClient: ModelClient(), modelKey: { ModelKeychain.read(service: service) })
+            try visionOracle(redCircles: 3, blueSquares: 1).write(
+                to: url.deletingLastPathComponent().appendingPathComponent("observation.png"))
+            _ = try await bridge.call("toggleAgent")
+            try await send(
+                "Read the first image in the document and count the red circles and blue squares. Leave the unrelated image alone. Return only JSON with integer redCircles and blueSquares fields.",
+                bridge: bridge)
+            try await liveCompleted(bridge)
+            try await assertVisionAnswer(bridge, red: 3, blue: 1)
+            XCTAssertEqual(session.agentImages.loadedIDs.count, 1, "Only the requested image is read")
+            XCTAssertEqual(session.document?.text, markdown, "Vision never grants document edit permission")
+        }
+    }
+
+    private func visionOracle(redCircles: Int, blueSquares: Int) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 480, height: 180), format: format).pngData { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 480, height: 180))
+            UIColor.red.setFill()
+            for index in 0..<redCircles {
+                context.cgContext.fillEllipse(in: CGRect(x: 15 + index * 72, y: 50, width: 50, height: 50))
+            }
+            UIColor.blue.setFill()
+            for index in 0..<blueSquares { context.fill(CGRect(x: 300 + index * 72, y: 50, width: 50, height: 50)) }
+        }
+    }
+
+    private func assertVisionAnswer(_ bridge: ReaderBridge, red: Int, blue: Int) async throws {
+        let diagnostics = try await state(bridge)
+        let rendered = (diagnostics["turns"] as? [[String: Any]])?.last?["text"] as? String ?? ""
+        let answer = rendered.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let result = try ModelWireFormat.object(Data(answer.utf8))
+        XCTAssertEqual(
+            result["redCircles"] as? Int, red, "The answer must come from actual pixels, not filenames or alt text")
+        XCTAssertEqual(result["blueSquares"] as? Int, blue)
+        let evidence = XCTAttachment(string: rendered)
+        evidence.name = "Vision-answer"
+        evidence.lifetime = .keepAlways
+        add(evidence)
+    }
+
 }

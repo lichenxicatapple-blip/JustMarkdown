@@ -8,20 +8,22 @@ final class ReaderWKWebView: WKWebView {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if let sourceView, !sourceView.isHidden, sourceView.isUserInteractionEnabled,
-            sourceView.alpha > 0.01, sourceView.frame.contains(point)
+            sourceView.alpha > 0.01, sourceView.bounds.contains(sourceView.convert(point, from: self))
         {
             return sourceView.hitTest(sourceView.convert(point, from: self), with: event)
         }
         return super.hitTest(point, with: event)
     }
     private var nativeInputFocused: Bool {
-        subviews.contains(where: { ($0 is ConversationTextView || $0 is SourceTextView) && $0.isFirstResponder })
+        sourceView?.isFirstResponder == true
     }
 
     override func buildMenu(with builder: any UIMenuBuilder) {
         super.buildMenu(with: builder)
         if nativeInputFocused { return }
-        let ask = UIAction(title: "AI", image: UIImage(systemName: "bubble.left")) { [weak self] _ in
+        let ask = UIAction(title: String(localized: "Reference in AI Chat…"), image: UIImage(systemName: "bubble.left"))
+        {
+            [weak self] _ in
             self?.askSelectedText?()
         }
         builder.insertChild(UIMenu(title: "", options: .displayInline, children: [ask]), atEndOfMenu: .standardEdit)
@@ -36,6 +38,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
     private var loadedToken = ""
     private var lastTheme = ""
     private(set) var composer: NativeComposerHost!
+    private(set) var imageMenu: ReaderImageMenu!
     let sourceEditor = SourceEditor()
     private var sourceToken = ""
     private var projectedRevision = -1
@@ -47,6 +50,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         self.session = session
         let configuration = WKWebViewConfiguration()
         configuration.setURLSchemeHandler(session.resources, forURLScheme: "jm-resource")
+        configuration.setURLSchemeHandler(session.agentImages, forURLScheme: "jm-image")
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         let languages =
@@ -63,12 +67,24 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         }
         // The transparent Web source surface lets its agent panel and scrim
         // composite above the native document without duplicating document text.
-        webView.insertSubview(sourceEditor.textView, at: 0)
         webView.sourceView = sourceEditor.textView
         sourceEditor.onChange = { [weak self] id, status in self?.sourceDidChange(id: id, status: status) }
         sourceEditor.onFocusChange = { [weak session] focused in session?.sourceFocused = focused }
         sourceEditor.onAsk = { [weak self] range in
             Task { try? await self?.askSourceSelection(range) }
+        }
+        imageMenu = ReaderImageMenu(webView: webView)
+        imageMenu.onAsk = { [weak self] reference, token, point in
+            guard let self, token == self.session.documentToken, self.session.mode == "preview",
+                !self.session.isClosingDocument,
+                let data = try? JSONEncoder().encode(reference),
+                var payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return }
+            payload["rect"] = ["left": point.x, "bottom": point.y]
+            Task { _ = try? await self.call("askImage", arguments: ["payload": payload]) }
+        }
+        imageMenu.onDismiss = { [weak self] id in
+            Task { _ = try? await self?.call("imageMenuDismissed", arguments: ["payload": ["id": id]]) }
         }
         composer = NativeComposerHost(webView: webView)
         composer.call = { [weak self] method, payload in
@@ -121,6 +137,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             try await askSourceSelection(sourceEditor.textView.selectedRange)
             return nil
         case "toggleMode", "toggleAgent", "commitAgentInput", "resolveAgentConsent":
+            if method == "toggleMode" || method == "toggleAgent" { imageMenu.dismiss() }
             try await synchronizeProjection()
         case "diagnostics":
             startProjection()
@@ -218,6 +235,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         guard ready else { return }
         updateTheme()
         guard let document = session.document, loadedToken != session.documentToken else { return }
+        imageMenu.dismiss()
         loadedToken = session.documentToken
         let token = loadedToken
         if sourceToken != token {
@@ -303,24 +321,42 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
             if let value = body["hasOutline"] as? Bool, session.hasOutline != value { session.hasOutline = value }
         case "documentReady":
             if body["token"] as? String == session.documentToken { session.rendererReady = true }
+        case "imageMenu":
+            guard body["token"] as? String == session.documentToken, session.mode == "preview",
+                !session.agentModalActive, !session.isClosingDocument,
+                let id = body["id"] as? String, let token = body["token"] as? String,
+                let value = body["reference"], let data = try? JSONSerialization.data(withJSONObject: value),
+                let reference = try? JSONDecoder().decode(AgentAttachment.self, from: data),
+                let x = body["x"] as? Double, let y = body["y"] as? Double
+            else { return }
+            imageMenu.show(id: id, token: token, reference: reference, point: CGPoint(x: x, y: y))
+        case "imageMenuDismiss":
+            if body["token"] as? String == session.documentToken { imageMenu.dismiss() }
         case "localResources":
             if let paths = body["paths"] as? [String], let token = body["token"] as? String {
                 session.localResourcesChanged(paths, token: token)
             }
         case "sourceLayout":
             guard body["token"] as? String == sourceToken else { return }
+            guard let host = webView.hostNativeInput(sourceEditor.textView, aboveWebContent: false) else { return }
+            let frame = CGRect(
+                x: body["x"] as? Double ?? 0, y: body["y"] as? Double ?? 0,
+                width: body["width"] as? Double ?? 0, height: body["height"] as? Double ?? 0)
             sourceEditor.updateLayout(
-                frame: CGRect(
-                    x: body["x"] as? Double ?? 0, y: body["y"] as? Double ?? 0,
-                    width: body["width"] as? Double ?? 0, height: body["height"] as? Double ?? 0),
+                frame: webView.convert(frame, to: host),
                 visible: body["visible"] as? Bool == true, opacity: body["opacity"] as? Double ?? 1,
                 interactive: body["interactive"] as? Bool == true)
         case "sourceRestore":
             guard body["token"] as? String == sourceToken, let anchor = body["anchor"] as? [String: Any] else { return }
             sourceEditor.restore(SourceReadingPosition(anchor))
         case "agentPresentation":
-            session.agentOpen = body["open"] as? Bool == true
-            session.agentModalActive = body["modal"] as? Bool == true
+            guard body["token"] as? String == session.documentToken else { return }
+            let width = max(0, body["reservedWidth"] as? Double ?? 0)
+            let open = body["open"] as? Bool == true
+            let modal = body["modal"] as? Bool == true
+            if session.agentReservedWidth != width { session.agentReservedWidth = width }
+            if session.agentOpen != open { session.agentOpen = open }
+            if session.agentModalActive != modal { session.agentModalActive = modal }
         case "agentEntry":
             if let id = body["id"] as? String, let token = body["token"] as? String {
                 session.requestAgentEntry(id: id, token: token)
@@ -385,7 +421,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func detach() {
         session.finishDataSharingConsent(allowed: false)
-        session.agentTransport.cancel()
+        session.agentTransport.reset()
+        session.agentImages.reset()
+        imageMenu.detach()
         composer.detach()
         webView.askSelectedText = nil
         webView.sourceView = nil
@@ -408,7 +446,9 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         session.finishDataSharingConsent(allowed: false)
-        session.agentTransport.cancel()
+        session.agentTransport.reset()
+        session.agentImages.reset()
+        imageMenu.dismiss()
         composer.blur()
         sourceEditor.textView.resignFirstResponder()
         sourceEditor.textView.isHidden = true
@@ -417,6 +457,7 @@ final class ReaderBridge: NSObject, WKScriptMessageHandler, WKNavigationDelegate
         projectionTask = nil
         session.agentOpen = false
         session.agentModalActive = false
+        session.agentReservedWidth = 0
         ready = false
         loadedToken = ""
         lastTheme = ""

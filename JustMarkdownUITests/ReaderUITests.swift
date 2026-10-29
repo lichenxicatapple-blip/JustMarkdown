@@ -425,7 +425,7 @@ final class ReaderUITests: XCTestCase {
         XCTAssertTrue(base.waitForExistence(timeout: 5))
         XCTAssertFalse(mode.isHittable, "Settings must block the document controls")
         mode.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertEqual(mode.label, "切换到源码")
+        XCTAssertEqual(mode.label, "切换到源码模式")
         base.tap()
         base.typeText("https://example.test/v1")
         app.buttons["ModelPicker"].tap()
@@ -916,7 +916,7 @@ final class ReaderUITests: XCTestCase {
         input.typeText("请修改第一段，让它更简洁。")
         app.webViews.buttons["发送问题"].tap()
         allowDataSharingIfRequested(app)
-        XCTAssertTrue(app.webViews.staticTexts["请切换到源码后再修改。"].waitForExistence(timeout: 12))
+        XCTAssertTrue(app.webViews.staticTexts["请切换到源码模式后再修改。"].waitForExistence(timeout: 12))
         record("ai-preview-read-only")
         app.webViews.buttons["收起对话"].tap()
         showTools(app)
@@ -928,6 +928,12 @@ final class ReaderUITests: XCTestCase {
         input.typeText("解释这份文档。")
         app.webViews.buttons["发送问题"].tap()
         XCTAssertTrue(app.webViews.staticTexts["通过目录导航"].waitForExistence(timeout: 12))
+        let answerEnd = app.webViews.staticTexts["保留原有格式"]
+        let visibleAnswer = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in answerEnd.isHittable }, object: nil)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [visibleAnswer], timeout: 8), .completed,
+            "The latest answer must follow into view without a manual scroll")
         record("ai-source-reading")
         let viewport = app.webViews.firstMatch
         let inputTrailingInset = viewport.frame.maxX - input.frame.maxX
@@ -969,6 +975,161 @@ final class ReaderUITests: XCTestCase {
         record("ai-source-edit-redone")
     }
 
+    func testAdaptiveConversationKeepsDirectoryReachableAndDraftAcrossPanelSwitches() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        let outline = app.buttons["OutlineToggle"]
+        XCTAssertTrue(outline.waitForExistence(timeout: 25))
+        waitForEnabled(outline)
+        let firstChapter = app.webViews.links["1. 从纯文本到可阅读的文档"]
+        if firstChapter.exists { outline.tap() }
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let input = app.textViews["QuestionInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+        input.tap()
+        let draft = "哈哈哈，Hello"
+        input.typeText(draft)
+        XCTAssertEqual(input.value as? String, draft)
+        record("adaptive-conversation-portrait-keyboard")
+        XCTAssertTrue(outline.isHittable, "The directory entry must remain reachable while AI is open")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertGreaterThan(
+                input.frame.minX, app.frame.width / 2, "Full-screen portrait iPad keeps AI at the side")
+            for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+                XCUIDevice.shared.orientation = orientation
+                XCTAssertEqual(
+                    XCTWaiter.wait(
+                        for: [
+                            XCTNSPredicateExpectation(
+                                predicate: NSPredicate { _, _ in
+                                    (app.frame.width > app.frame.height) == orientation.isLandscape
+                                        && input.frame.minX > app.frame.width / 2
+                                        && input.value as? String == draft
+                                }, object: nil)
+                        ], timeout: 8), .completed)
+            }
+            outline.tap()
+            XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
+            XCTAssertTrue(input.exists)
+            record("adaptive-wide-directory-and-conversation")
+            let keyboard = app.keyboards.firstMatch
+            let hideKeyboard = keyboard.buttons.matching(
+                NSPredicate(format: "label IN %@", ["Hide keyboard", "Hide Keyboard"])
+            ).firstMatch
+            XCTAssertTrue(hideKeyboard.waitForExistence(timeout: 5), keyboard.debugDescription)
+            hideKeyboard.tap()
+            XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5))
+            let restored = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in
+                    input.frame.maxY > app.frame.maxY - 100 && input.value as? String == draft
+                }, object: nil)
+            XCTAssertEqual(
+                XCTWaiter.wait(for: [restored], timeout: 8), .completed,
+                "Hiding the keyboard must restore the full-height conversation: \(input.frame), app \(app.frame)")
+            record("adaptive-conversation-keyboard-dismissed")
+        } else {
+            XCTAssertLessThan(input.frame.minX, app.frame.width / 4)
+            outline.tap()
+            XCTAssertTrue(input.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(firstChapter.waitForExistence(timeout: 5))
+            record("adaptive-narrow-directory-switch")
+            showTools(app)
+            app.buttons["GlobalAI"].tap()
+            XCTAssertTrue(input.waitForExistence(timeout: 5))
+            XCTAssertEqual(input.value as? String, draft)
+            XCTAssertTrue(firstChapter.waitForNonExistence(timeout: 5))
+        }
+    }
+
+    func testConversationManualBrowsingAndFollowingSurviveComposerResizeAndRotation() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-agent-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+        ]
+        app.launch()
+        XCTAssertTrue(app.webViews.staticTexts["Markdown 长文阅读与技术笔记"].waitForExistence(timeout: 25))
+        showTools(app)
+        app.buttons["GlobalAI"].tap()
+        let input = app.textViews["QuestionInput"]
+        XCTAssertTrue(input.waitForExistence(timeout: 8))
+        let answerEnds = app.webViews.staticTexts.matching(identifier: "保留原有格式")
+        func appendLine(_ text: String) {
+            let keyboard = app.keyboards.firstMatch
+            XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+            let returnKey = keyboard.descendants(matching: .any)
+                .matching(NSPredicate(format: "label IN %@", ["return", "Return", "换行"]))
+                .firstMatch
+            XCTAssertTrue(returnKey.waitForExistence(timeout: 3))
+            returnKey.tap()
+            input.typeText(text)
+        }
+        for turn in 1...5 {
+            input.tap()
+            input.typeText("Reading question \(turn)")
+            app.webViews.buttons["Send message"].tap()
+            if turn == 1 { allowDataSharingIfRequested(app) }
+            let end = answerEnds.element(boundBy: turn - 1)
+            XCTAssertEqual(
+                XCTWaiter.wait(
+                    for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in end.isHittable }, object: nil)],
+                    timeout: 10), .completed)
+        }
+        let conversation = app.webViews.otherElements
+            .matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Conversation", "Conversation,"))
+            .firstMatch
+        XCTAssertTrue(conversation.exists)
+        let firstQuestion = app.webViews.staticTexts["Reading question 1"]
+        func isVisible(_ element: XCUIElement) -> Bool {
+            let viewport = conversation.frame.intersection(app.frame)
+            return !viewport.isEmpty && viewport.contains(element.frame)
+        }
+        for _ in 0..<8 where !isVisible(firstQuestion) { conversation.swipeDown() }
+        XCTAssertTrue(isVisible(firstQuestion), "Real touch scrolling must reveal the first question")
+        let initialOffset = firstQuestion.frame.minY - conversation.frame.minY
+        input.tap()
+        input.typeText("draft")
+        appendLine("second line")
+        XCTAssertEqual(input.value as? String, "draft\nsecond line")
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [
+                    XCTNSPredicateExpectation(
+                        predicate: NSPredicate { _, _ in
+                            isVisible(firstQuestion)
+                                && abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset) < 2
+                        }, object: nil)
+                ], timeout: 8), .completed, "Growing the composer must preserve manual reading")
+        for orientation in [UIDeviceOrientation.landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            XCTAssertEqual(
+                XCTWaiter.wait(
+                    for: [
+                        XCTNSPredicateExpectation(
+                            predicate: NSPredicate { _, _ in
+                                (app.frame.width > app.frame.height) == orientation.isLandscape
+                                    && abs(firstQuestion.frame.minY - conversation.frame.minY - initialOffset) < 2
+                            }, object: nil)
+                    ], timeout: 8), .completed, "Rotation must preserve manual reading")
+        }
+        let lastAnswer = answerEnds.element(boundBy: 4)
+        for _ in 0..<8 where !isVisible(lastAnswer) { conversation.swipeUp() }
+        XCTAssertTrue(isVisible(lastAnswer), "Real touch scrolling must return to the latest answer")
+        input.tap()
+        for line in ["third line", "fourth line", "fifth line"] { appendLine(line) }
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in isVisible(lastAnswer) }, object: nil)],
+                timeout: 8), .completed, "Returning to the end must restore following when the composer grows")
+    }
+
     func testNativeSelectionQuestionMenu() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
@@ -993,13 +1154,69 @@ final class ReaderUITests: XCTestCase {
         if !app.menuItems.firstMatch.waitForExistence(timeout: 6) {
             paragraph.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
-        let ask = app.menuItems["AI"]
+        let ask = app.menuItems["在 AI 对话中引用…"]
         XCTAssertTrue(ask.waitForExistence(timeout: 6))
         ask.tap()
         XCTAssertTrue(app.descendants(matching: .any)["QuestionInput"].waitForExistence(timeout: 6))
         XCTAssertTrue(app.webViews.buttons["发送问题"].exists)
         record("selection-question")
         app.webViews.buttons["收起对话"].tap()
+    }
+
+    private func openImageReader(_ app: XCUIApplication, language: String, locale: String) -> XCUIElement {
+        XCUIDevice.shared.orientation = UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+        app.launchArguments = [
+            "--ui-testing", "--ui-test-model-fixture", "--sample-document", "--reset-sample-document",
+            "-AppleLanguages", "(\(language))", "-AppleLocale", locale,
+        ]
+        app.launch()
+        let toggle = app.buttons["OutlineToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 25))
+        waitForEnabled(toggle)
+        let chapter = app.webViews.links["6.1 Markdown 图片"]
+        if !chapter.exists { toggle.tap() }
+        XCTAssertTrue(chapter.waitForExistence(timeout: 8))
+        chapter.tap()
+        if chapter.exists { toggle.tap() }
+        let image = app.webViews.descendants(matching: .any).matching(identifier: "市场结构示意图").firstMatch
+        XCTAssertTrue(image.waitForExistence(timeout: 8))
+        return image
+    }
+
+    func testImageTapMenuOpensACompleteImageQuote() {
+        let app = XCUIApplication()
+        for (language, locale, title, reference) in [
+            ("zh-Hans", "zh_CN", "在 AI 对话中引用…", "引用"),
+            ("en", "en_US", "Reference in AI Chat…", "Reference"),
+        ] {
+            let image = openImageReader(app, language: language, locale: locale)
+            image.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            let action = app.menuItems[title]
+            XCTAssertTrue(action.waitForExistence(timeout: 6))
+            XCTAssertEqual(app.menuItems.matching(identifier: title).count, 1)
+            record("image-tap-menu-\(language)")
+            action.tap()
+            XCTAssertTrue(app.textViews["QuestionInput"].waitForExistence(timeout: 8))
+            let quote = app.webViews.otherElements[reference].images["市场结构示意图"].firstMatch
+            XCTAssertTrue(quote.waitForExistence(timeout: 5))
+            record("image-quote-composer-\(language)")
+            app.terminate()
+        }
+    }
+
+    func testImageLongPressRetainsSystemCopyShareAndRecognition() {
+        let app = XCUIApplication()
+        let image = openImageReader(app, language: "zh-Hans", locale: "zh_CN")
+        // Press the drawing's empty leading edge, rather than its OCR text.
+        image.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).press(forDuration: 1.2)
+        let copy = app.buttons["拷贝"]
+        XCTAssertTrue(copy.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["共享…"].exists)
+        XCTAssertTrue(app.buttons["显示文本"].exists)
+        XCTAssertFalse(app.menuItems["在 AI 对话中引用…"].exists)
+        record("image-original-system-menu")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+        XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
     }
 
     private func showTools(_ app: XCUIApplication) {
@@ -1140,7 +1357,7 @@ final class ReaderUITests: XCTestCase {
         if UIDevice.current.userInterfaceIdiom == .phone {
             XCTAssertFalse(app.buttons["ToolsToggle"].exists)
             XCTAssertFalse(app.buttons["CloseDocument"].exists)
-            XCTAssertFalse(app.buttons["OutlineToggle"].exists)
+            XCTAssertTrue(app.buttons["OutlineToggle"].isHittable)
         }
         record("agent-failure-retry-draft")
         app.webViews.buttons["收起对话"].tap()

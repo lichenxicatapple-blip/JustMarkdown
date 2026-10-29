@@ -74,6 +74,7 @@
       function update(payload) {
         const entry = entries.get(payload.id);
         if (!entry || payload.epoch !== entry.epoch) return false;
+        notePanelInteraction('agent');
         applying = true;
         entry.field.value = payload.text;
         applying = false;

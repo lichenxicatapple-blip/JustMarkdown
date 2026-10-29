@@ -42,12 +42,14 @@ python3 scripts/build_native_web.py --check
 | 单元测试 | `JustMarkdownTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
 | WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
 | UI 测试 | `JustMarkdownUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 在两端模拟器上完整运行 |
-| 真实模型测试 | `JustMarkdownLiveTests` | 实际服务的两种协议、多轮对话、编辑及撤销重做 | 只编译，不发送请求 |
+| 真实模型测试 | `JustMarkdownLiveTests` | 两种协议、多轮对话、编辑与撤销重做、答复语言、直接识图及按需读图 | 只编译，不发送请求 |
 | 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
 
 ### 离线自动化测试
 
 `JustMarkdown` scheme 使用唯一的共享测试计划 [Full.xctestplan](JustMarkdown.xcodeproj/xcshareddata/xctestplans/Full.xctestplan)。本地、每次推送、PR 和手动 CI 均完整执行单元、集成和 UI 测试；新增用例由 XCTest 自动发现，不维护核心用例清单。
+
+本地模拟器的 I/O → Keyboard → Connect Hardware Keyboard 应保持关闭，使原生键盘布局用例使用软键盘；实体键盘按下述真机流程验证。
 
 运行完整的单元、WebKit 集成和 UI 测试：
 
@@ -101,7 +103,7 @@ Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重
 
 ### 真实模型测试
 
-选择 `JustMarkdownLive` scheme，运行 [LiveModelTests.swift](JustMarkdownLiveTests/LiveModelTests.swift) 的 `testAtlasProtocolsConversationAndSourceEdit`。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
+选择 `JustMarkdownLive` scheme，运行 [LiveModelTests.swift](JustMarkdownLiveTests/LiveModelTests.swift) 的全部用例。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
 
 1. 在仓库外准备权限为 `0600` 的私有 JSON 文件，包含 `baseURL`、`model`、`key`，以及可选的 `apiProtocol`（`responses` 或 `chatCompletions`；省略时分别测试两种协议）。
 2. 将 `JustMarkdownLive` 复制为本机非共享 scheme，在 Test → Arguments 中维护本机环境变量；Test 不沿用 Run 的参数与环境变量。

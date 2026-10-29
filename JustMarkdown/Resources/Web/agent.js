@@ -24,8 +24,9 @@
   const { t, formatSeconds } = window.JustMarkdownLocalization;
   const refreshIcons = () => window.lucide?.createIcons({ attrs: { width: 18, height: 18 } });
   function create(dependencies) {
-    const { app, panel, renderMarkdown, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
-    const compact = matchMedia('(max-width: 899px)');
+    const { app, panel, renderMarkdown, fragmentIdentifier, enhance, motion, reducedMotion, onToggle, documentAttachment, provider, nativeInputs, onPresentationChange, ensureConfigured } = dependencies;
+    let sheet = false;
+    let reservedWidth = 0;
     const scroll = panel.querySelector('.mdv-agent-scroll');
     const thread = panel.querySelector('.mdv-conversation');
     const composer = panel.querySelector('.mdv-composer');
@@ -36,7 +37,7 @@
     useDocument.append(createNode('span', '', t("Reference document")));
     useDocument.classList.add('mdv-use-document');
     useDocument.hidden = true;
-    sendButton.before(useDocument);
+    composer.querySelector('.mdv-composer-input-row').before(useDocument);
     const announcement = panel.querySelector('[role="status"]');
     const scrim = createNode('div', 'mdv-agent-scrim');
     scrim.hidden = true;
@@ -63,6 +64,8 @@
       reference.style.setProperty('--mdv-reference-gutter', Math.max(0, body.offsetWidth - body.clientWidth) + 'px');
     });
     let followBottom = true;
+    let followFrame = 0;
+    let downwardScrollOrigin = null;
     let drag = null;
     const disclosureAnimations = new WeakMap();
     const seconds = spec => reducedMotion.matches ? 0 : spec.duration;
@@ -104,7 +107,7 @@
     function referenceLabel(value) {
       return value.scope === 'document'
         ? value.documentName || t('Current document')
-        : value.text.trim();
+        : value.text.trim() || value.images?.map(image => image.alt).filter(Boolean).join(', ') || t('Image');
     }
     function appendReference(parent, value) {
       const details = createNode('details', 'mdv-message-reference');
@@ -119,13 +122,13 @@
       parent.append(details);
       summary.addEventListener('click', event => {
         event.preventDefault();
-        followBottom = false;
+        pauseFollowing();
         const shown = summary.getAttribute('aria-expanded') !== 'true';
         details.open = true;
         summary.setAttribute('aria-expanded', String(shown));
         summary.setAttribute('aria-label', shown ? t("Collapse reference") : t("Expand reference"));
         if (shown) {
-          if (!body.childNodes.length) body.append(renderMarkdown(value.markdown, prefix));
+          if (!body.childNodes.length) body.append(renderMarkdown(value.markdown, prefix, value.images));
           enhance(body);
         }
         disclosure(body, shown, () => { if (!shown) details.open = false; });
@@ -169,7 +172,7 @@
           toggle.setAttribute('aria-expanded', String(shown));
           toggle.setAttribute('aria-label', shown ? t("Collapse reference") : t("Expand reference"));
           if (shown) {
-            if (!content.childNodes.length) content.append(renderMarkdown(value.markdown, prefix));
+            if (!content.childNodes.length) content.append(renderMarkdown(value.markdown, prefix, value.images));
             enhance(content);
           }
           disclosure(body, shown);
@@ -178,7 +181,7 @@
         body.setAttribute('role', 'region');
         body.setAttribute('aria-label', t("Referenced content"));
         body.tabIndex = 0;
-        content.append(renderMarkdown(value.markdown, prefix));
+        content.append(renderMarkdown(value.markdown, prefix, value.images));
         const marker = createNode('span', 'mdv-reference-icon');
         marker.setAttribute('aria-hidden', 'true');
         marker.append(icon(value.mode === 'source' ? 'code' : 'quote'));
@@ -208,22 +211,55 @@
         refreshIcons();
       }
       input.style.height = 'auto';
-      input.style.height = Math.min(160, Math.max(52, input.scrollHeight)) + 'px';
+      const style = getComputedStyle(input);
+      input.style.height = Math.min(parseFloat(style.maxHeight), Math.max(parseFloat(style.minHeight), input.scrollHeight)) + 'px';
     }
     function keepAtBottom() {
       if (followBottom && isOpen) scroll.scrollTop = scroll.scrollHeight;
     }
+    function cancelPendingFollow() {
+      cancelAnimationFrame(followFrame);
+      followFrame = 0;
+      downwardScrollOrigin = null;
+    }
+    function pauseFollowing() {
+      cancelPendingFollow();
+      followBottom = false;
+    }
+    function followLatest() {
+      cancelPendingFollow();
+      followBottom = true;
+      keepAtBottom();
+    }
     const contentObserver = new ResizeObserver(keepAtBottom);
     contentObserver.observe(thread);
+    contentObserver.observe(scroll);
     const nearBottom = () => scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop < 56;
-    // Programmatic scroll events can arrive after a user's wheel gesture.
-    // Only explicit downward navigation may resume following a running reply.
-    scroll.addEventListener('scroll', () => { if (!nearBottom()) followBottom = false; }, { passive: true });
-    scroll.addEventListener('wheel', event => {
-      if (event.deltaY < 0) followBottom = false;
-      else if (event.deltaY > 0) requestAnimationFrame(() => { if (nearBottom()) followBottom = true; });
+    function resumeFollowingAfterNavigation() {
+      cancelPendingFollow();
+      // Record the end the user is navigating toward before a keyboard or
+      // composer reflow can move it. Rejoin immediately when already there.
+      const bottom = scroll.scrollHeight - scroll.clientHeight;
+      if (nearBottom()) { followLatest(); return; }
+      downwardScrollOrigin = scroll.scrollTop;
+      followFrame = requestAnimationFrame(() => {
+        followFrame = 0;
+        if (nearBottom() || scroll.scrollTop >= bottom - 56) followLatest();
+      });
+    }
+    // Touch momentum may reach the end after the release frame. Require both
+    // downward intent and actual movement, so a resize alone cannot rejoin.
+    scroll.addEventListener('scroll', () => {
+      if (downwardScrollOrigin !== null && scroll.scrollTop > downwardScrollOrigin && nearBottom()) followLatest();
     }, { passive: true });
-    scroll.addEventListener('pointerdown', () => { followBottom = false; }, { passive: true });
+    scroll.addEventListener('scrollend', () => { downwardScrollOrigin = null; }, { passive: true });
+    // Resizing and layout also emit scroll events. Follow state comes from
+    // navigation intent; only downward navigation at the end resumes following.
+    scroll.addEventListener('wheel', event => {
+      if (event.deltaY < 0) pauseFollowing();
+      else if (event.deltaY > 0) resumeFollowingAfterNavigation();
+    }, { passive: true });
+    scroll.addEventListener('pointerdown', pauseFollowing, { passive: true });
     let touchY = null;
     let touchDirection = 0;
     scroll.addEventListener('touchstart', event => { touchY = event.touches[0]?.clientY ?? null; touchDirection = 0; }, { passive: true });
@@ -232,46 +268,68 @@
       if (touchY === null || y === undefined) return;
       touchDirection = touchY - y;
       touchY = y;
-      followBottom = false;
+      pauseFollowing();
     }, { passive: true });
     scroll.addEventListener('touchend', () => {
-      if (touchDirection > 0) requestAnimationFrame(() => { if (nearBottom()) followBottom = true; });
+      if (touchDirection > 0) resumeFollowingAfterNavigation();
       touchY = null;
     }, { passive: true });
     scroll.addEventListener('keydown', event => {
-      if (['ArrowUp','PageUp','Home'].includes(event.key)) followBottom = false;
-      if (event.key === 'End') followBottom = true;
+      if (['ArrowUp','PageUp','Home'].includes(event.key)) pauseFollowing();
+      if (event.key === 'End') followLatest();
     });
-    function updateModality(shown) {
-      const modal = shown && compact.matches;
+    function updateModality(shown, focus = false) {
+      const modal = shown && sheet;
       panel.toggleAttribute('data-modal-active', modal);
-      onPresentationChange?.({ open: isOpen, modal });
+      onPresentationChange?.({ open: isOpen, modal, reservedWidth: isOpen ? reservedWidth : 0 });
       panel.setAttribute('role', modal ? 'dialog' : 'complementary');
       if (modal) panel.setAttribute('aria-modal', 'true');
       else panel.removeAttribute('aria-modal');
       const collapse = panel.querySelector('[data-agent-action="collapse"]');
-      collapse.replaceChildren(icon(compact.matches ? 'chevron-down' : 'chevron-right'));
+      collapse.replaceChildren(icon(sheet ? 'chevron-down' : 'chevron-right'));
       refreshIcons();
-      if (modal && !panel.contains(document.activeElement)) collapse.focus({ preventScroll: true });
+      if (modal && focus && !panel.contains(document.activeElement)) collapse.focus({ preventScroll: true });
       [app.querySelector('.mdv-reader'), app.querySelector('.mdv-outline')].filter(Boolean).forEach(node => { node.inert = modal; });
     }
-    function present(shown) {
-      if (shown === presented) return;
+    function present(shown, presentation) {
+      const changed = sheet !== presentation.sheet;
+      const previousRect = presentation.previousRect;
+      reservedWidth = presentation.reservedWidth;
+      sheet = presentation.sheet;
+      viewportChanged();
+      if (shown === presented) {
+        if (changed) {
+          panelAnimation?.cancel(); scrimAnimation?.cancel();
+          panelAnimation = null; scrimAnimation = null;
+          scrim.hidden = !shown || !sheet;
+          panel.hidden = !shown;
+          panel.inert = !shown;
+          updateModality(shown);
+          if (shown && previousRect && !reducedMotion.matches) {
+            const target = panel.getBoundingClientRect();
+            const transform = `translate(${previousRect.left - target.left}px, ${previousRect.top - target.top}px) scale(${previousRect.width / target.width}, ${previousRect.height / target.height})`;
+            panelAnimation = panel.animate([{ transform, transformOrigin: 'top left' }, { transform: 'none', transformOrigin: 'top left' }], motion.agentPanel);
+          }
+        } else onPresentationChange?.({ open: isOpen, modal: panel.hasAttribute('data-modal-active'), reservedWidth: isOpen ? reservedWidth : 0 });
+        keepAtBottom();
+        return;
+      }
       presented = shown;
       isOpen = shown;
+      if (!shown) cancelPendingFollow();
       const revision = ++panelRevision;
       const hidden = panel.hidden;
       const style = hidden ? null : getComputedStyle(panel);
-      const start = { opacity: hidden ? 0 : style.opacity, transform: hidden ? (compact.matches ? 'translateY(100%)' : 'translateX(24px)') : style.transform };
+      const start = { opacity: hidden ? 0 : style.opacity, transform: hidden ? (sheet ? 'translateY(100%)' : 'translateX(24px)') : style.transform };
       panelAnimation?.cancel();
       scrimAnimation?.cancel();
       panel.hidden = false;
       panel.inert = !shown;
       nativeInputs?.trackLayout();
       app.classList.toggle('mdv-agent-open', shown);
-      if (shown) updateModality(true);
-      else { nativeInputs?.blur(); onPresentationChange?.({ open: false, modal: panel.hasAttribute("data-modal-active") }); }
-      const useScrim = compact.matches && (shown || !scrim.hidden);
+      if (shown) updateModality(true, true);
+      else { nativeInputs?.blur(); onPresentationChange?.({ open: false, modal: panel.hasAttribute("data-modal-active"), reservedWidth: 0 }); }
+      const useScrim = sheet && (shown || !scrim.hidden);
       if (useScrim) scrim.hidden = false;
       const finish = () => {
         if (revision !== panelRevision) return;
@@ -280,14 +338,14 @@
         scrimAnimation?.cancel();
         panelAnimation = null;
         scrimAnimation = null;
-        scrim.hidden = !shown || !compact.matches;
+        scrim.hidden = !shown || !sheet;
         if (!shown) {
           updateModality(false);
         }
         keepAtBottom();
       };
       if (!seconds(motion.agentPanel)) { finish(); return; }
-      panelAnimation = panel.animate([start, { opacity: shown ? 1 : 0, transform: shown ? 'none' : compact.matches ? 'translateY(100%)' : 'translateX(24px)' }], { ...motion.agentPanel, fill: 'both' });
+      panelAnimation = panel.animate([start, { opacity: shown ? 1 : 0, transform: shown ? 'none' : sheet ? 'translateY(100%)' : 'translateX(24px)' }], { ...motion.agentPanel, fill: 'both' });
       if (useScrim) scrimAnimation = scrim.animate([{ opacity: shown ? 0 : 1 }, { opacity: shown ? 1 : 0 }], { ...motion.agentPanel, fill: 'both' });
       panelAnimation.onfinish = finish;
     }
@@ -299,7 +357,7 @@
       }
       if (!authorized && ensureConfigured) { const snapshot = { ...value }; ensureConfigured(() => attach(snapshot, rect, true)); return; }
       attachment = { ...value };
-      followBottom = true;
+      followLatest();
       onToggle(true);
       renderAttachment(attachment, rect);
       input.focus({ preventScroll: true });
@@ -323,11 +381,33 @@
       refreshIcons();
       return message;
     }
+    function clearPending(record, fade = false) {
+      if (fade && record.pendingRetiring) return;
+      const { pending } = record;
+      record.pendingAnimation?.cancel();
+      record.pendingAnimation = null;
+      if (!fade || reducedMotion.matches || !pending.isConnected) { pending.remove(); return; }
+      record.pendingRetiring = true;
+      // Keep the outgoing dots at their current pose and position. The answer
+      // enters normal flow immediately, without waiting for a bounce to finish.
+      const top = pending.offsetTop, left = pending.offsetLeft, width = pending.offsetWidth;
+      pending.querySelectorAll('.mdv-agent-dot').forEach(dot => {
+        const style = getComputedStyle(dot);
+        const transform = style.transform, opacity = style.opacity;
+        dot.style.animation = 'none';
+        dot.style.transform = transform;
+        dot.style.opacity = opacity;
+      });
+      Object.assign(pending.style, { position: 'absolute', top: top + 'px', left: left + 'px', width: width + 'px' });
+      const animation = pending.animate([{ opacity: 1 }, { opacity: 0 }], motion.agentWaitingOut);
+      record.pendingAnimation = animation;
+      animation.finished.then(() => { pending.remove(); record.pendingAnimation = null; }, () => {});
+    }
     function finishStream(record, stopped = false) {
       if (activeStream !== record) return;
       clearTimeout(record.renderTimer);
       if (record.liveMarkdown) renderLive(record);
-      record.pending.remove();
+      clearPending(record);
       record.message.element.dataset.state = stopped ? 'stopped' : 'complete';
       record.message.element.removeAttribute('aria-busy');
       if (!stopped) record.message.markdown = record.request.markdown;
@@ -339,6 +419,8 @@
       keepAtBottom();
     }
     const failureMessages = {
+      image: t("The image could not be read. Check that it is available and uses a supported format."),
+      imagePermission: t("Allow access to the image folder, then retry."),
       permission: t("Allow sending to this AI service before trying again."),
       network: t("Unable to connect to the service"),
       timeout: t("Request timed out"),
@@ -360,7 +442,7 @@
       if (activeStream !== record) return;
       clearTimeout(record.renderTimer);
       if (record.liveMarkdown) renderLive(record);
-      record.pending.remove();
+      clearPending(record);
       activeStream = null;
       const { request, message, failure } = record;
       message.element.dataset.state = 'failed';
@@ -390,7 +472,7 @@
         if (activeStream || latestRequest !== request || Date.now() < request.retryAt) return;
         authorizeSend(() => {
           if (latestRequest !== request) return;
-          followBottom = true;
+          followLatest();
           // Keep keyboard focus in the response without opening the software keyboard.
           message.element.tabIndex = -1;
           message.element.focus({ preventScroll: true });
@@ -412,7 +494,14 @@
       request.message = message;
       const pending = createNode('div', 'mdv-request-status');
       pending.dataset.component = 'RequestStatus';
-      const progress = createNode('div', 'mdv-agent-pending', retrying ? t("Retrying…") : t("Generating…"));
+      const progress = createNode('div', 'mdv-agent-pending');
+      progress.setAttribute('aria-hidden', 'true');
+      for (let index = 0; index < 3; ++index) {
+        const dot = createNode('span', 'mdv-agent-dot');
+        dot.style.setProperty('--mdv-dot-index', index);
+        progress.append(dot);
+      }
+      pending.append(createNode('span', 'mdv-sr-only', retrying ? t("Retrying…") : t("Generating…")));
       pending.append(progress);
       message.element.append(pending);
       message.element.dataset.state = retrying ? 'retrying' : 'pending';
@@ -443,6 +532,7 @@
       const prepared = renderMarkdown(record.liveMarkdown, 'message-' + record.message.id);
       const nodes = Array.from(prepared.childNodes).filter(node => node.nodeType !== Node.TEXT_NODE || node.textContent.trim());
       if (!nodes.length) return;
+      clearPending(record, true);
       if (record.replaceOnFirstBlock) { record.message.surface.replaceChildren(); record.replaceOnFirstBlock = false; }
       const surface = record.message.surface;
       nodes.forEach((node, index) => {
@@ -467,7 +557,11 @@
     function beginRequest(user) {
       clearRetry(latestRequest);
       user.intent = 'question';
-      user.document = Object.freeze({ ...documentAttachment() });
+      const currentDocument = documentAttachment();
+      // The current quote and full-document inventory identify the same image
+      // capture, so selected pixels need not be requested again through a tool.
+      currentDocument.images = currentDocument.images?.map(image => user.attachment?.images?.find(selected => selected.source === image.source) || image);
+      user.document = Object.freeze(currentDocument);
       const history = Object.freeze(messages.filter(message => message.role === 'user' || message.markdown.trim() || message.changes?.length).map(message => Object.freeze({
         role: message.role,
         intent: message.intent || null,
@@ -489,7 +583,7 @@
         if (!input.value.trim()) return;
         const text = input.value.trim();
         const value = attachment?.scope === 'document' ? documentAttachment() : attachment ? { ...attachment } : null;
-        followBottom = true;
+        followLatest();
         const user = addMessage('user', text, value);
         input.value = '';
         attachment = null;
@@ -634,9 +728,9 @@
     app.addEventListener('click', event => {
       const link = event.target.closest('.mdv-rich-text a[href^="#"]');
       if (!link) return;
-      const target = document.getElementById(link.getAttribute('href').slice(1));
+      event.preventDefault();
+      const target = document.getElementById(fragmentIdentifier(link));
       if (target && panel.contains(target)) {
-        event.preventDefault();
         target.scrollIntoView({ block: 'nearest', behavior: reducedMotion.matches ? 'instant' : 'smooth' });
       }
     });
@@ -644,7 +738,7 @@
       if (event.key === 'Escape') {
         if (isOpen) { event.preventDefault(); onToggle(false); }
       }
-      if (event.key === 'Tab' && compact.matches && isOpen) {
+      if (event.key === 'Tab' && sheet && isOpen) {
         const controls = Array.from(panel.querySelectorAll('button:not([disabled]),textarea,a[href],summary')).filter(node => node.getClientRects().length && !node.closest('[inert]'));
         const first = controls[0];
         const last = controls.at(-1);
@@ -654,7 +748,7 @@
     });
     const grabber = panel.querySelector('.mdv-agent-grabber');
     grabber.addEventListener('pointerdown', event => {
-      if (!compact.matches || event.button !== 0) return;
+      if (!sheet || event.button !== 0) return;
       panelAnimation?.cancel();
       panelAnimation = null;
       drag = { y: event.clientY, offset: 0 };
@@ -677,16 +771,6 @@
     }
     grabber.addEventListener('pointerup', () => endDrag(false));
     grabber.addEventListener('pointercancel', () => endDrag(true));
-    compact.addEventListener('change', () => {
-      panelAnimation?.cancel();
-      scrimAnimation?.cancel();
-      panelAnimation = null;
-      scrimAnimation = null;
-      panel.hidden = !isOpen;
-      scrim.hidden = !isOpen || !compact.matches;
-      updateModality(isOpen);
-      keepAtBottom();
-    });
     reducedMotion.addEventListener('change', event => {
       if (event.matches) {
         panelAnimation?.finish();
@@ -697,7 +781,7 @@
     });
     function viewportChanged() {
       const viewport = window.visualViewport;
-      if (compact.matches && viewport) {
+      if (sheet && viewport) {
         panel.style.maxHeight = Math.max(160, viewport.height - 16) + 'px';
         panel.style.bottom = Math.max(0, innerHeight - viewport.height - viewport.offsetTop) + 'px';
       } else {
@@ -707,16 +791,16 @@
     }
     window.visualViewport?.addEventListener('resize', viewportChanged);
     window.visualViewport?.addEventListener('scroll', viewportChanged);
-    compact.addEventListener('change', viewportChanged);
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
       panel.querySelectorAll('.mdv-rich-text').forEach(surface => enhance(surface).then(keepAtBottom));
     });
     updateSendState();
     viewportChanged();
     function reset() {
+      cancelPendingFollow();
       ++conversationRevision;
       pendingAuthorization = null;
-      if (activeStream) { activeStream.cancel?.(); clearTimeout(activeStream.timer); clearTimeout(activeStream.renderTimer); }
+      if (activeStream) { activeStream.cancel?.(); clearTimeout(activeStream.renderTimer); clearPending(activeStream); }
       activeStream = null;
       clearRetry(latestRequest);
       latestRequest = null;

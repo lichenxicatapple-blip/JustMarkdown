@@ -24,7 +24,7 @@ final class CredentialTests: XCTestCase {
             XCTAssertTrue(try restored.allows(ModelDataConsent.service(for: configuration)))
         }
         let stored = try XCTUnwrap(defaults.persistentDomain(forName: name))
-        let values = try XCTUnwrap(stored["model.dataSharing.allowedServices"] as? [String])
+        let values = try XCTUnwrap(stored["model.dataSharing.allowedServices.images"] as? [String])
         XCTAssertEqual(values.count, 1)
         XCTAssertEqual(values[0].count, 64)
         XCTAssertFalse(values[0].contains("example"))
@@ -61,4 +61,19 @@ final class CredentialTests: XCTestCase {
         XCTAssertTrue(ModelKeychain.read(service: service).isEmpty)
         try ModelKeychain.delete(service: service)
     }
+    func testTextOnlyConsentDoesNotAuthorizeSharingImagePixels() throws {
+        let name = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let service = try ModelDataConsent.service(for: ModelConfiguration(baseURL: "https://example.test/v1"))
+        let consent = ModelDataConsent(defaults: defaults)
+        consent.allow(service)
+        let imageGrant = try XCTUnwrap(defaults.stringArray(forKey: "model.dataSharing.allowedServices.images"))
+        defaults.removeObject(forKey: "model.dataSharing.allowedServices.images")
+        defaults.set(imageGrant, forKey: "model.dataSharing.allowedServices")
+        let restored = ModelDataConsent(defaults: defaults)
+        XCTAssertFalse(restored.allows(service), "An earlier text-only grant must not silently expand to image sharing")
+        XCTAssertNil(defaults.object(forKey: "model.dataSharing.allowedServices"))
+    }
+
 }

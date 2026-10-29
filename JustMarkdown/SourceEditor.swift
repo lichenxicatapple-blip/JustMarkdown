@@ -157,7 +157,7 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     func textView(
-        _ textView: UITextView, shouldChangeTextIn ranges: [NSValue], replacementText text: String
+        _ textView: UITextView, shouldChangeTextInRanges ranges: [NSValue], replacementText text: String
     ) -> Bool {
         if !composing { pendingSelection = selection }
         return true
@@ -184,10 +184,12 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     func textView(
-        _ textView: UITextView, editMenuForTextIn ranges: [NSValue], suggestedActions: [UIMenuElement]
+        _ textView: UITextView, editMenuForTextInRanges ranges: [NSValue], suggestedActions: [UIMenuElement]
     ) -> UIMenu? {
         guard textView.selectedRange.length > 0 else { return UIMenu(children: suggestedActions) }
-        let ai = UIAction(title: "AI", image: UIImage(systemName: "bubble.left")) { [weak self] _ in
+        let ai = UIAction(title: String(localized: "Reference in AI Chat…"), image: UIImage(systemName: "bubble.left"))
+        {
+            [weak self] _ in
             guard let self, self.textView.selectedRange.length > 0 else { return }
             self.onAsk?(self.textView.selectedRange)
         }
@@ -195,6 +197,9 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     func updateLayout(frame: CGRect, visible: Bool, opacity: CGFloat, interactive: Bool = true) {
+        let position =
+            visible && !textView.isHidden && abs(textView.bounds.width - frame.width) > 0.5
+            ? capturePosition() : nil
         if !visible || !interactive { textView.resignFirstResponder() }
         textView.isUserInteractionEnabled = interactive
         textView.accessibilityElementsHidden = !interactive
@@ -204,6 +209,8 @@ final class SourceEditor: NSObject, UITextViewDelegate {
         textView.alpha = opacity
         if visible, let position = pendingPosition {
             pendingPosition = nil
+            restore(position)
+        } else if let position {
             restore(position)
         }
     }
@@ -259,13 +266,15 @@ final class SourceEditor: NSObject, UITextViewDelegate {
     }
 
     func detach() {
-        textView.resignFirstResponder()
-        textView.delegate = nil
-        textView.removeFromSuperview()
-        history.onChange = nil
-        history.reset("")
+        // SwiftUI can dismantle the host during a view update. Disconnect the
+        // outgoing editor before UIKit sends its focus-ending callbacks.
         onChange = nil
         onFocusChange = nil
         onAsk = nil
+        textView.delegate = nil
+        textView.resignFirstResponder()
+        textView.removeFromSuperview()
+        history.onChange = nil
+        history.reset("")
     }
 }

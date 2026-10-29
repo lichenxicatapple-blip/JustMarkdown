@@ -19,6 +19,7 @@ final class ReaderSession: ObservableObject {
     @Published private(set) var resourcePermissionDirectory: URL?
     @Published var agentOpen = false
     @Published var agentModalActive = false
+    @Published var agentReservedWidth: CGFloat = 0
     @Published var needsModelConfiguration = false
     @Published var needsDataSharingConsent = false
     @Published var modelSettingsRequested = false
@@ -27,6 +28,7 @@ final class ReaderSession: ObservableObject {
     @Published var configuration: ModelConfiguration
     weak var bridge: ReaderBridge?
     let resources = LocalResourceHandler()
+    let agentImages = AgentImages()
     private var grantedRoots: [URL] = []
     private var scopedURLs: [URL] = []
     private var documentScope: URL?
@@ -192,6 +194,7 @@ final class ReaderSession: ObservableObject {
             return false
         }
         agentTransport.reset()
+        agentImages.reset()
         finishDataSharingConsent(allowed: false)
         agentDocuments.reset()
         failedCloseToken = nil
@@ -200,6 +203,7 @@ final class ReaderSession: ObservableObject {
         needsModelConfiguration = false
         agentOpen = false
         agentModalActive = false
+        agentReservedWidth = 0
         documentToken = UUID().uuidString.lowercased()
         localResourcePaths = nil
         deniedResourcePath = nil
@@ -207,6 +211,7 @@ final class ReaderSession: ObservableObject {
         needsResourcePermission = false
         rendererReady = false
         mode = "preview"
+        sourceFocused = false
         canUndoSource = false
         canRedoSource = false
         hasOutline = false
@@ -284,6 +289,7 @@ final class ReaderSession: ObservableObject {
             return
         }
         agentTransport.reset()
+        agentImages.reset()
         finishDataSharingConsent(allowed: false)
         agentDocuments.reset()
         pendingAgentEntry = nil
@@ -296,9 +302,11 @@ final class ReaderSession: ObservableObject {
         modelSettingsRequested = false
         agentOpen = false
         agentModalActive = false
+        agentReservedWidth = 0
         documentToken = UUID().uuidString.lowercased()
         rendererReady = false
         mode = "preview"
+        sourceFocused = false
         canUndoSource = false
         canRedoSource = false
         outlineExpanded = false
@@ -434,8 +442,36 @@ final class ReaderSession: ObservableObject {
             toolsAvailable: { [weak self] in
                 self?.mode == "source" && self?.documentToken == token && self?.isClosingDocument == false
             },
+            prepareImages: { [weak self] in
+                guard let self, let document = self.document, self.documentToken == token else {
+                    throw CancellationError()
+                }
+                let images = try await self.agentImages.prepare(
+                    snapshot,
+                    access: ResourceAccess(
+                        documentURL: document.fileURL, roots: self.grantedRoots, token: token))
+                await emit(AgentModelEvent(id: id, token: token, type: "images", imageIDs: self.agentImages.loadedIDs))
+                return images
+            },
+            imageTools: { [weak self] in
+                guard let self, self.documentToken == token, self.document != nil, !self.isClosingDocument,
+                    self.agentImages.hasUnreadImages(in: snapshot)
+                else { return [] }
+                return [AgentImages.definition]
+            },
             executeTool: { [weak self] call, onChange in
                 guard let self else { return AgentToolExecution(output: "{\"error\":\"document_closed\"}") }
+                if call.name == "read_image", let document = self.document, self.documentToken == token,
+                    !self.isClosingDocument
+                {
+                    let result = await self.agentImages.execute(
+                        call,
+                        access: ResourceAccess(
+                            documentURL: document.fileURL, roots: self.grantedRoots, token: token))
+                    await emit(
+                        AgentModelEvent(id: id, token: token, type: "images", imageIDs: self.agentImages.loadedIDs))
+                    return result
+                }
                 return await self.agentDocuments.execute(call, token: token, onChange: onChange)
             },
             emit: emit)

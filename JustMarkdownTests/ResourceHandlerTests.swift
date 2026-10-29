@@ -1,3 +1,5 @@
+import ImageIO
+import UIKit
 import WebKit
 import XCTest
 
@@ -128,4 +130,221 @@ final class ResourceHandlerTests: XCTestCase {
         XCTAssertNotNil(missing.error)
         XCTAssertEqual(permissionPrompts, 1, "A missing file is not a folder-permission failure")
     }
+    @MainActor
+    func testImageInventoryIsLazyAndSentPixelsStayImmutable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let file = root.appendingPathComponent("figure.png")
+        func png(_ color: UIColor) -> Data {
+            UIGraphicsImageRenderer(size: CGSize(width: 80, height: 40)).pngData { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 80, height: 40))
+            }
+        }
+        let original = png(.red)
+        try original.write(to: file)
+        let image = AgentImageReference(id: UUID().uuidString, source: "figure.png", alt: "Figure")
+        var document = AgentAttachment(
+            text: "![Figure](figure.png)", markdown: "![Figure](figure.png)", mode: "preview", scope: "document",
+            location: nil, start: nil, end: nil)
+        document.images = [image]
+        let snapshot = AgentSnapshot(
+            question: "What is shown?", attachment: document,
+            history: [.init(role: "user", markdown: "What is shown?", attachment: document, document: document)],
+            document: document)
+        let access = ResourceAccess(
+            documentURL: root.appendingPathComponent("note.md"), roots: [root], token: "image-test")
+        let images = AgentImages()
+        let initial = try await images.prepare(snapshot, access: access)
+        XCTAssertTrue(initial.isEmpty, "Document-wide entry must not read image pixels eagerly")
+        let call = ModelToolCall(id: "call", name: "read_image", arguments: "{\"imageID\":\"\(image.id)\"}")
+        let first = await images.execute(call, access: access)
+        let frozen = try XCTUnwrap(first.images.first)
+        XCTAssertEqual(frozen.mimeType, "image/png")
+        XCTAssertEqual(UIImage(data: frozen.data)?.cgImage?.width, UIImage(data: original)?.cgImage?.width)
+        XCTAssertEqual(UIImage(data: frozen.data)?.cgImage?.height, UIImage(data: original)?.cgImage?.height)
+        try png(.blue).write(to: file)
+        let repeated = await images.execute(call, access: access)
+        XCTAssertEqual(repeated.images, [frozen], "A tool retry must reuse already-observed pixels")
+        let continued = try await images.prepare(snapshot, access: access)
+        XCTAssertEqual(continued, [frozen], "A later round must retain the original visual evidence")
+        let request = SchemeRequest(URL(string: "jm-image://image-test/\(image.id)")!)
+        images.webView(WKWebView(), start: request)
+        XCTAssertTrue(request.finished)
+        XCTAssertEqual(request.data, frozen.data, "The sent quote renders the exact model image snapshot")
+        images.reset()
+        let stale = await images.execute(call, access: access)
+        XCTAssertTrue(stale.images.isEmpty)
+        XCTAssertTrue(stale.output.contains("unknown_image"))
+    }
+
+    @MainActor
+    func testImageToolCannotReadUnreferencedFilesOrEscapeGrantedFolders() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let allowed = root.appendingPathComponent("allowed")
+        try FileManager.default.createDirectory(at: allowed, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let image = AgentImageReference(id: UUID().uuidString, source: "../private.png", alt: "")
+        var document = AgentAttachment(
+            text: "", markdown: "![](../private.png)", mode: "preview", scope: "document", location: nil, start: nil,
+            end: nil)
+        document.images = [image]
+        let snapshot = AgentSnapshot(
+            question: "Look", attachment: document,
+            history: [.init(role: "user", markdown: "Look", attachment: document, document: document)],
+            document: document)
+        let access = ResourceAccess(
+            documentURL: allowed.appendingPathComponent("note.md"), roots: [allowed], token: "restricted")
+        let images = AgentImages()
+        _ = try await images.prepare(snapshot, access: access)
+        for arguments in [
+            "{\"imageID\":\"\(UUID().uuidString)\"}", "{\"path\":\"../private.png\"}",
+            "{\"imageID\":\"\(image.id)\",\"path\":\"private.png\"}",
+        ] {
+            let result = await images.execute(
+                ModelToolCall(id: "bad", name: "read_image", arguments: arguments), access: access)
+            XCTAssertTrue(result.images.isEmpty)
+            XCTAssertTrue(result.output.contains("unknown_image"))
+        }
+        let denied = await images.execute(
+            ModelToolCall(id: "denied", name: "read_image", arguments: "{\"imageID\":\"\(image.id)\"}"), access: access)
+        XCTAssertTrue(denied.images.isEmpty)
+        XCTAssertTrue(denied.output.contains("image_permission"))
+    }
+
+    @MainActor
+    func testSelectedSVGIsRasterizedIntoActualPixels() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let svg =
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"60\"><rect width=\"120\" height=\"60\" fill=\"red\"/></svg>"
+        try Data(svg.utf8).write(to: root.appendingPathComponent("picture.svg"))
+        let reference = AgentImageReference(id: UUID().uuidString, source: "picture.svg", alt: "")
+        var selected = AgentAttachment(
+            text: "Image", markdown: "![](picture.svg)", mode: "preview", scope: nil, location: nil, start: nil,
+            end: nil)
+        selected.images = [reference]
+        let snapshot = AgentSnapshot(
+            question: "Look", attachment: selected,
+            history: [.init(role: "user", markdown: "Look", attachment: selected)])
+        let images = try await AgentImages().prepare(
+            snapshot,
+            access: ResourceAccess(documentURL: root.appendingPathComponent("note.md"), roots: [root], token: "svg"))
+        let decoded = try XCTUnwrap(UIImage(data: XCTUnwrap(images.first).data)?.cgImage)
+        XCTAssertEqual(CGFloat(decoded.width) / CGFloat(decoded.height), 2, accuracy: 0.01)
+        var rgba = [UInt8](repeating: 0, count: 4)
+        let context = try XCTUnwrap(
+            CGContext(
+                data: &rgba, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(decoded, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        XCTAssertGreaterThan(rgba[0], 200, "SVG conversion must contain the red drawing, not a blank WebView")
+        XCTAssertLessThan(rgba[1], 20)
+        XCTAssertGreaterThan(rgba[3], 200)
+    }
+
+    @MainActor
+    func testRemoteImagesAreLazyAndDoNotCarryModelCredentials() async throws {
+        ImageDownloadProtocol.state.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ImageDownloadProtocol.self]
+        let images = AgentImages(network: URLSession(configuration: configuration))
+        let reference = AgentImageReference(
+            id: UUID().uuidString, source: "https://image.example.test/picture.png", alt: "Remote")
+        var document = AgentAttachment(
+            text: "", markdown: "![Remote](https://image.example.test/picture.png)", mode: "preview", scope: "document",
+            location: nil, start: nil, end: nil)
+        document.images = [reference]
+        let snapshot = AgentSnapshot(
+            question: "Look", attachment: document,
+            history: [.init(role: "user", markdown: "Look", attachment: document, document: document)],
+            document: document)
+        let access = ResourceAccess(documentURL: URL(fileURLWithPath: "/note.md"), roots: [], token: "remote")
+        _ = try await images.prepare(snapshot, access: access)
+        XCTAssertTrue(ImageDownloadProtocol.state.requests.isEmpty)
+        let result = await images.execute(
+            ModelToolCall(id: "download", name: "read_image", arguments: "{\"imageID\":\"\(reference.id)\"}"),
+            access: access)
+        XCTAssertEqual(result.images.count, 1)
+        let requests = ImageDownloadProtocol.state.requests
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertNil(requests.first?.value(forHTTPHeaderField: "Authorization"))
+        XCTAssertNil(requests.first?.value(forHTTPHeaderField: "Cookie"))
+        XCTAssertNil(requests.first?.httpBody)
+    }
+
+    @MainActor
+    func testImagePixelsExcludeSourceGPSAndEXIFMetadata() async throws {
+        let image = try XCTUnwrap(
+            UIGraphicsImageRenderer(size: CGSize(width: 30, height: 20)).image { context in
+                UIColor.red.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 30, height: 20))
+            }.cgImage)
+        let sourceData = NSMutableData()
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithData(sourceData, "public.jpeg" as CFString, 1, nil))
+        CGImageDestinationAddImage(
+            destination, image,
+            [
+                kCGImagePropertyGPSDictionary: [
+                    kCGImagePropertyGPSLatitude: 31.2, kCGImagePropertyGPSLatitudeRef: "N",
+                ],
+                kCGImagePropertyExifDictionary: [kCGImagePropertyExifUserComment: "private camera information"],
+            ] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        let original = try XCTUnwrap(CGImageSourceCreateWithData(sourceData, nil))
+        let originalProperties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(original, 0, nil) as? [CFString: Any])
+        XCTAssertNotNil(originalProperties[kCGImagePropertyGPSDictionary])
+        XCTAssertEqual(
+            (originalProperties[kCGImagePropertyExifDictionary] as? [CFString: Any])?[kCGImagePropertyExifUserComment]
+                as? String, "private camera information")
+        let reference = AgentImageReference(
+            id: UUID().uuidString, source: "data:image/jpeg;base64," + (sourceData as Data).base64EncodedString(),
+            alt: "")
+        var attachment = AgentAttachment(
+            text: "Image", markdown: "", mode: "preview", scope: nil, location: nil, start: nil, end: nil)
+        attachment.images = [reference]
+        let snapshot = AgentSnapshot(
+            question: "Look", attachment: attachment,
+            history: [.init(role: "user", markdown: "Look", attachment: attachment)])
+        let prepared = try await AgentImages().prepare(
+            snapshot,
+            access: ResourceAccess(documentURL: URL(fileURLWithPath: "/note.md"), roots: [], token: "metadata"))
+        let source = try XCTUnwrap(CGImageSourceCreateWithData(XCTUnwrap(prepared.first).data as CFData, nil))
+        let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+        XCTAssertNil(properties[kCGImagePropertyGPSDictionary])
+        // ImageIO may generate dimension and color-space fields while encoding.
+        // The original private metadata must not accompany the pixels.
+        XCTAssertNil((properties[kCGImagePropertyExifDictionary] as? [CFString: Any])?[kCGImagePropertyExifUserComment])
+    }
+
+}
+
+private final class ImageDownloadState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [URLRequest] = []
+    func reset() { lock.withLock { values = [] } }
+    func record(_ request: URLRequest) { lock.withLock { values.append(request) } }
+    var requests: [URLRequest] { lock.withLock { values } }
+}
+
+private final class ImageDownloadProtocol: URLProtocol, @unchecked Sendable {
+    static let state = ImageDownloadState()
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "image.example.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.state.record(request)
+        let response = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "image/png"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(
+            self,
+            didLoad: Data(
+                base64Encoded:
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==")!
+        )
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

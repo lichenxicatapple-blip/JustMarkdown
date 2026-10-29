@@ -3,17 +3,200 @@ import XCTest
 @testable import JustMarkdown
 
 final class AgentContextTests: XCTestCase {
-    private func reference(_ text: String) -> AgentAttachment {
+    private func reference(_ text: String, mode: String = "source") -> AgentAttachment {
         AgentAttachment(
-            text: text, markdown: "```swift\n" + text + "\n```", mode: "source", scope: nil,
+            text: text, markdown: "```swift\n" + text + "\n```", mode: mode, scope: nil,
             location: "源码 · 第 20 行", start: 10, end: 10 + text.utf16.count,
             documentName: "/private/local-folder/技术笔记.md")
     }
 
-    private func document(_ markdown: String) -> AgentAttachment {
+    private func document(_ markdown: String, mode: String = "preview") -> AgentAttachment {
         AgentAttachment(
-            text: markdown, markdown: markdown, mode: "preview", scope: "document", location: nil,
+            text: markdown, markdown: markdown, mode: mode, scope: "document", location: nil,
             start: nil, end: nil, documentName: "/private/local-folder/技术笔记.md")
+    }
+
+    func testCurrentModeSelectsRulesWithoutReinterpretingHistoryOrOldReferences() throws {
+        for mode in ["preview", "source"] {
+            let previousMode = mode == "source" ? "preview" : "source"
+            let oldDocument = document("# 文档\n\n原文。", mode: previousMode)
+            let current = document(oldDocument.markdown, mode: mode)
+            let selected = reference("原文。", mode: previousMode)
+            let snapshot = AgentSnapshot(
+                question: "请继续解释", attachment: selected,
+                history: [
+                    .init(role: "user", markdown: "解释这段", attachment: selected, document: oldDocument),
+                    .init(role: "assistant", markdown: "之前的解释。", attachment: nil),
+                    .init(role: "user", markdown: "请继续解释", attachment: selected, document: current),
+                ], document: current)
+            let messages = try snapshot.messages(intent: "question")
+            let instructions = try XCTUnwrap(messages.first?.content)
+            XCTAssertEqual(messages.map(\.role), ["system", "user", "assistant", "user"])
+            XCTAssertEqual(instructions.contains("edit_document"), mode == "source")
+            XCTAssertEqual(instructions.contains("read_document"), mode == "source")
+            XCTAssertEqual(instructions.contains("# 当前能力：只读"), mode == "preview")
+            XCTAssertEqual(instructions.contains("# 当前能力：阅读与编辑"), mode == "source")
+            let first = try ModelWireFormat.object(Data(messages[1].content.utf8))
+            let latest = try ModelWireFormat.object(Data(messages[3].content.utf8))
+            XCTAssertNil(first["view"])
+            XCTAssertNil(latest["view"])
+            XCTAssertNil((latest["reference"] as? [String: String])?["view"])
+            XCTAssertEqual(
+                (latest["reference"] as? [String: String])?["content"],
+                previousMode == "source" ? selected.text : selected.markdown)
+        }
+    }
+
+    func testLanguageFallbackAndMultilingualQuestionsReachBothProtocolsInBothModes() throws {
+        for language in ["en", "zh-Hans", "it"] {
+            for mode in ["preview", "source"] {
+                for question in [
+                    "解释一下这个 API 的 retry 机制", "How does 目录同步 work?",
+                    "Puoi spiegare il retry di questa API?", "¿Cómo funciona el retry de esta API?",
+                    "この API の retry はどう動きますか？", "请用法语回答这个问题。", "?",
+                ] {
+                    let full = document("# 文档\n\nEnglish and 中文。", mode: mode)
+                    let snapshot = AgentSnapshot(
+                        question: question, attachment: nil,
+                        history: [.init(role: "user", markdown: question, attachment: nil, document: full)],
+                        document: full)
+                    let messages = try AgentContextBuilder.build(
+                        snapshot, intent: "question", appLanguage: language)
+                    let instructions = try XCTUnwrap(messages.first?.content)
+                    let languageName = try XCTUnwrap(
+                        Locale(identifier: "zh-Hans").localizedString(forIdentifier: language))
+                    XCTAssertTrue(instructions.contains("默认使用" + languageName))
+                    XCTAssertFalse(instructions.contains("App 语言"))
+                    for api in ModelAPIProtocol.allCases {
+                        let configuration = ModelConfiguration(apiProtocol: api)
+                        let data =
+                            try mode == "source"
+                            ? ModelToolWire.requestBody(
+                                configuration, messages: messages, tools: AgentDocumentTools.definitions, exchanges: [])
+                            : ModelWireFormat.requestBody(configuration, messages: messages)
+                        let body = try ModelWireFormat.object(data)
+                        let history = try XCTUnwrap(
+                            body[api == .responses ? "input" : "messages"] as? [[String: String]])
+                        let transmitted =
+                            api == .responses ? body["instructions"] as? String : history.first?["content"]
+                        XCTAssertEqual(transmitted, instructions)
+                        let user = try ModelWireFormat.object(Data(XCTUnwrap(history.last?["content"]).utf8))
+                        XCTAssertEqual(user["request"] as? String, question)
+                        XCTAssertNil(user["view"])
+                    }
+                }
+            }
+        }
+    }
+
+    func testDefaultLanguageFallbackUsesTheAppLocalization() throws {
+        let snapshot = AgentSnapshot(
+            question: "?", attachment: nil, history: [.init(role: "user", markdown: "?", attachment: nil)])
+        let messages = try snapshot.messages(intent: "question")
+        let instructions = try XCTUnwrap(messages.first?.content)
+        let appLanguage = try XCTUnwrap(Bundle.main.preferredLocalizations.first)
+        let languageName = try XCTUnwrap(
+            Locale(identifier: "zh-Hans").localizedString(forIdentifier: appLanguage))
+        XCTAssertTrue(instructions.contains("默认使用" + languageName))
+    }
+
+    func testEveryHistoricalReplyUsesTheSameRecordShapeAndKeepsPartialContent() throws {
+        let change = AgentSourceChange(before: "旧内容", after: "新内容", status: "applied")
+        let replies: [AgentHistoryTurn] = [
+            .init(role: "assistant", markdown: "**完整答复**", attachment: nil),
+            .init(role: "assistant", markdown: "尚未写完的答复", attachment: nil, status: "failed"),
+            .init(
+                role: "assistant", markdown: "```json\n{\"request\":\"文内数据\"}\n```", attachment: nil,
+                status: "stopped", changes: [change]),
+        ]
+        var history: [AgentHistoryTurn] = []
+        for reply in replies {
+            history.append(.init(role: "user", markdown: "继续", attachment: nil))
+            history.append(reply)
+        }
+        history.append(.init(role: "user", markdown: "接着回答", attachment: nil))
+        let snapshot = AgentSnapshot(question: "接着回答", attachment: nil, history: history)
+        let messages = try snapshot.messages(intent: "question").filter { $0.role == "assistant" }
+        XCTAssertEqual(messages.count, replies.count)
+        for (message, reply) in zip(messages, replies) {
+            let record = try ModelWireFormat.object(Data(message.content.utf8))
+            XCTAssertEqual(Set(record.keys), ["answer", "status", "sourceChanges"])
+            XCTAssertEqual(record["answer"] as? String, reply.markdown)
+            XCTAssertEqual(record["status"] as? String, reply.status ?? "complete")
+            let changes = try XCTUnwrap(record["sourceChanges"] as? [[String: String]])
+            XCTAssertEqual(changes.count, reply.changes?.count ?? 0)
+            if reply.changes?.isEmpty == false {
+                XCTAssertEqual(changes.first?["before"], change.before)
+                XCTAssertEqual(changes.first?["after"], change.after)
+                XCTAssertEqual(changes.first?["status"], change.status)
+            }
+        }
+    }
+
+    func testImageReferencesRemainTextAndRepliesDoNotRequireAJSONEnvelope() throws {
+        for mode in ["preview", "source"] {
+            let markdown = "# 图片\n\n![实验照片](images/photo.png)\n\n![曲线图](https://example.com/plot.png)"
+            let full = document(markdown, mode: mode)
+            let snapshot = AgentSnapshot(
+                question: "图片说明了什么？", attachment: full,
+                history: [.init(role: "user", markdown: "图片说明了什么？", attachment: full, document: full)],
+                document: full)
+            let messages = try snapshot.messages(intent: "question")
+            for api in ModelAPIProtocol.allCases {
+                let configuration = ModelConfiguration(apiProtocol: api)
+                let data =
+                    try mode == "source"
+                    ? ModelToolWire.requestBody(
+                        configuration, messages: messages, tools: AgentDocumentTools.definitions, exchanges: [])
+                    : ModelWireFormat.requestBody(configuration, messages: messages)
+                let body = try ModelWireFormat.object(data)
+                let history = try XCTUnwrap(body[api == .responses ? "input" : "messages"] as? [[String: String]])
+                let user = try ModelWireFormat.object(Data(XCTUnwrap(history.last?["content"]).utf8))
+                let background = try XCTUnwrap(user["background"] as? [String: Any])
+                let documents = try XCTUnwrap(background["documents"] as? [[String: String]])
+                XCTAssertEqual(documents.first?["content"], markdown)
+                XCTAssertNil(body["response_format"])
+                XCTAssertNil(body["text"], "Responses replies remain free text rather than a JSON envelope")
+                if mode == "preview" {
+                    XCTAssertNil(body["tools"])
+                } else {
+                    let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+                    XCTAssertEqual(tools.count, 2)
+                    for tool in tools {
+                        let definition = try api == .responses ? tool : XCTUnwrap(tool["function"] as? [String: Any])
+                        XCTAssertEqual(definition["strict"] as? Bool, true)
+                    }
+                }
+            }
+        }
+    }
+
+    func testUIFixtureUsesOfferedToolsWithoutViewMetadataInBothProtocols() async throws {
+        let before = "这是一份可以实际滚动、选择、修改和来回切换的长文样例。"
+        for mode in ["preview", "source"] {
+            let full = document("# 样例\n\n" + before, mode: mode)
+            let question = "请修改第一段，让它更简洁。"
+            let snapshot = AgentSnapshot(
+                question: question, attachment: nil,
+                history: [.init(role: "user", markdown: question, attachment: nil, document: full)], document: full)
+            let messages = try snapshot.messages(intent: "question")
+            for api in ModelAPIProtocol.allCases {
+                let result = try await DebugModelFixture.client().stream(
+                    configuration: ModelConfiguration(
+                        baseURL: "https://ui-fixture.justmarkdown.invalid/v1", model: "ui-test-model", apiProtocol: api),
+                    key: "test-key", messages: messages,
+                    tools: mode == "source" ? AgentDocumentTools.definitions : [], onText: { _ in })
+                XCTAssertEqual(result.calls.map(\.name), mode == "source" ? ["edit_document"] : [])
+                if mode == "source" {
+                    let call = try XCTUnwrap(result.calls.first)
+                    let arguments = try ModelWireFormat.object(Data(call.arguments.utf8))
+                    XCTAssertEqual(arguments["revision"] as? String, AgentDocumentTools.revision(full.markdown))
+                    XCTAssertEqual((arguments["edits"] as? [[String: String]])?.first?["before"], before)
+                } else {
+                    XCTAssertEqual(result.text, "请切换到源码模式后再修改。")
+                }
+            }
+        }
     }
 
     func testSelectionRemainsExactWhileFullDocumentSuppliesBackground() throws {
@@ -111,4 +294,49 @@ final class AgentContextTests: XCTestCase {
             history: [.init(role: "user", markdown: "修改", attachment: badRange)])
         XCTAssertThrowsError(try edit.messages(intent: "question"))
     }
+    func testMultimodalPartsAndImageToolResultsMatchBothAPIs() throws {
+        let image = ModelImage(id: UUID().uuidString, data: Data([1, 2, 3]), mimeType: "image/png")
+        let selected = ChatMessage(role: "user", content: "Selected image", images: [image])
+        for api in ModelAPIProtocol.allCases {
+            let config = ModelConfiguration(apiProtocol: api)
+            let body = try ModelWireFormat.object(ModelWireFormat.requestBody(config, messages: [selected]))
+            let messages = try XCTUnwrap(body[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            let parts = try XCTUnwrap(messages.first?["content"] as? [[String: Any]])
+            XCTAssertEqual(parts.last?["type"] as? String, api == .responses ? "input_image" : "image_url")
+            let url =
+                api == .responses
+                ? parts.last?["image_url"] as? String : (parts.last?["image_url"] as? [String: String])?["url"]
+            XCTAssertEqual(url, "data:image/png;base64,AQID")
+            let call = ModelToolCall(id: "call-1", name: "read_image", arguments: "{}")
+            let responseItem = try JSONSerialization.data(withJSONObject: [
+                "type": "function_call", "call_id": call.id, "name": call.name, "arguments": call.arguments,
+            ])
+            let assistant = try JSONSerialization.data(withJSONObject: [
+                "role": "assistant", "content": "",
+                "tool_calls": [
+                    ["id": call.id, "type": "function", "function": ["name": call.name, "arguments": call.arguments]]
+                ],
+            ])
+            let exchange = ModelToolExchange(
+                turn: ModelTurn(calls: [call], responseItems: [responseItem], chatAssistant: assistant),
+                outputs: [ModelToolOutput(id: call.id, content: "Loaded", images: [image])])
+            let toolBody = try ModelWireFormat.object(
+                ModelToolWire.requestBody(
+                    config, messages: [ChatMessage(role: "user", content: "Question")], tools: [AgentImages.definition],
+                    exchanges: [exchange]))
+            let items = try XCTUnwrap(toolBody[api == .responses ? "input" : "messages"] as? [[String: Any]])
+            if api == .responses {
+                let output = try XCTUnwrap(items.last)
+                XCTAssertEqual(output["call_id"] as? String, call.id)
+                XCTAssertEqual((output["output"] as? [[String: Any]])?.last?["type"] as? String, "input_image")
+            } else {
+                XCTAssertEqual(items[2]["role"] as? String, "tool")
+                XCTAssertEqual(items[2]["content"] as? String, "Loaded")
+                XCTAssertEqual(items[2]["tool_call_id"] as? String, call.id)
+                XCTAssertEqual(items.last?["role"] as? String, "user")
+                XCTAssertEqual((items.last?["content"] as? [[String: Any]])?.last?["type"] as? String, "image_url")
+            }
+        }
+    }
+
 }

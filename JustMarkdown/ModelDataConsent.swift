@@ -4,9 +4,13 @@ import Foundation
 /// Consent belongs to the normalized service, independently of its model, key or API dialect.
 struct ModelDataConsent {
     private let defaults: UserDefaults
-    private let storageKey = "model.dataSharing.allowedServices"
+    private let storageKey = "model.dataSharing.allowedServices.images"
 
-    init(defaults: UserDefaults) { self.defaults = defaults }
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        // The previous scope covered text only and cannot authorize image pixels.
+        defaults.removeObject(forKey: "model.dataSharing.allowedServices")
+    }
 
     static func service(for configuration: ModelConfiguration) throws -> URL {
         let endpoint = try configuration.modelsEndpoint().deletingLastPathComponent()

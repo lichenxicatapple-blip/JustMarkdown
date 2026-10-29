@@ -4,6 +4,6 @@
 
 *just markdown, pure reading.*
 
-Read local Markdown documents comfortably on iPhone and iPad.
+A Markdown reader for iPhone and iPad.
 
 ![Markdown document in the reader](docs/assets/reader.png)

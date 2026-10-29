@@ -123,9 +123,18 @@ enum ModelKeychain {
     }
 }
 
-struct ChatMessage: Codable, Sendable {
+struct ModelImage: Sendable, Equatable {
+    let id: String
+    let data: Data
+    let mimeType: String
+
+    var dataURL: String { "data:\(mimeType);base64," + data.base64EncodedString() }
+}
+
+struct ChatMessage: Sendable {
     var role: String
     var content: String
+    var images: [ModelImage] = []
 }
 
 /// Keep documents and credentials at the explicitly configured endpoint.

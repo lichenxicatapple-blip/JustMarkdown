@@ -140,11 +140,11 @@ final class LocalResourceHandler: NSObject, WKURLSchemeHandler {
         onPermissionDenied?(token, source)
     }
 
-    nonisolated private static func readCoordinated(_ file: URL) throws -> Data {
+    nonisolated static func readCoordinated(_ file: URL, options: Data.ReadingOptions = .mappedIfSafe) throws -> Data {
         var error: NSError?
         var result: Result<Data, Error>?
         NSFileCoordinator().coordinate(readingItemAt: file, options: .withoutChanges, error: &error) { coordinatedURL in
-            result = Result { try Data(contentsOf: coordinatedURL, options: .mappedIfSafe) }
+            result = Result { try Data(contentsOf: coordinatedURL, options: options) }
         }
         if let error { throw error }
         guard let result else { throw CocoaError(.fileReadUnknown) }

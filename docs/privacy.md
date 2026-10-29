@@ -4,7 +4,7 @@
 
 ## 中文
 
-**更新日期：** 2026-10-25\
+**更新日期：** 2026-10-28\
 **发布者：** CHENXI LI（个人开发者）\
 **联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -34,16 +34,18 @@ AI 对话和编辑上下文在当前文档会话中处理，不另行保存为�
 AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直接发送至你配置的服务，
 不经过开发者运营的服务器。
 
-首次向一个服务发送文档或对话前，应用会说明发送范围和接收地址，并请求你的明确许可。
-取消时不发送，问题和引用保留在输入区。允许后对该服务不再询问；更换服务地址时重新请求许可。
+首次向一个服务发送文档、对话或图片前，应用会说明发送范围和接收地址，并请求你的明确许可。
+取消时不发送，问题和引用保留在输入区。允许后对该服务不再询问；更换服务地址时重新请求许可。旧版纯文字许可不自动扩展为图片发送许可。
 
 - 在模型设置中输入或更改有效连接信息时，应用可能自动查询模型列表；尚未点击“完成”
   也可能发起查询。查询使用你填写的 API Key 认证，不包含文档正文。
 - 发送 AI 消息会将当前文档全文、所选片段、你的问题和本次会话历史发送至所配服务。
-  请求还可能包含文档文件名、内容版本及阅读／源码模式。仅选中一段文字不代表只发送该片段。
+  请求还可能包含文档文件名、内容版本及当前可用能力。仅选中一段文字不代表只发送该片段。
 - 源码编辑任务可能包含后续模型请求，以及当前文档编辑工具的参数、结果和修改内容。
-- 应用不额外加入文件的系统绝对路径，也不单独上传本地图片文件；文档正文原有的路径、链接
-  和其他信息仍会作为正文的一部分发送。
+- 选中的图片随问题发送实际画面。全局 AI 先发送文档中的图片引用清单，模型可按需读取并接收相关图片；
+  不会每轮主动发送全部图片。本地图片受已有文件授权限制，网络图片由应用按其引用地址下载。
+  图片会移除原始 EXIF、GPS 等元数据；已发送的画面在本次文档会话中保留，以供追问和重试，关闭文档时清除。
+- 应用不额外加入文件的系统绝对路径；文档正文原有的路径、链接和其他信息仍会作为正文的一部分发送。
 
 我们不将你的文档或对话收集到开发者的服务中用于广告、画像或模型训练。
 你选择的服务提供者可能处理请求内容、认证信息、IP 地址及连接日志，其保留期限、训练用途、
@@ -97,7 +99,7 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
-**Last updated:** 2026-10-25\
+**Last updated:** 2026-10-28\
 **Publisher:** CHENXI LI (individual developer)\
 **Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
@@ -130,23 +132,28 @@ documents ends the session; collapsing the AI panel alone does not.
 You configure the AI service address, model and API key. Requests go directly to the
 service you configure, without passing through a developer-operated server.
 
-Before documents or conversations are first sent to a service, the app explains the
+Before documents, conversations or images are first sent to a service, the app explains the
 scope and destination and asks for your explicit permission. Canceling sends nothing
 and keeps your question and reference in the composer. Once allowed, the app does not
-ask again for that service. A different service address requires new permission.
+ask again for that service. A different service address requires new permission. Earlier text-only permission does not automatically authorize image sharing.
 
 - Entering or changing valid connection details in model settings may automatically
   request a model list, including before you tap Done. This request uses your API key
   for authentication and does not contain document text.
 - Sending an AI message transmits the entire current document, selected passage,
   your question and the current conversation history to your configured service.
-  Requests may also include the document filename, content version and reading or
-  source mode. Selecting a passage does not limit transmission to that passage.
+  Requests may also include the document filename, content version and currently
+  available capabilities. Selecting a passage does not limit transmission to that passage.
 - Source-editing tasks may involve follow-up model requests containing current-document
   tool arguments, results and changes.
-- The app does not separately add the file’s absolute system path or upload local image
-  files. Paths, links and other information already present in the document remain part
-  of the document text that is transmitted.
+- Selected images are sent as actual image content with your question. Global AI initially
+  receives an inventory of referenced images and may read relevant pictures on demand;
+  the app does not proactively send every image each round. Local images remain subject
+  to existing file permissions; remote images are downloaded from their referenced URLs.
+  Original EXIF and GPS metadata are removed. Sent image snapshots remain in the current
+  document session for follow-up questions and retries and are cleared when it closes.
+- The app does not separately add the file’s absolute system path. Paths, links and other
+  information already present in the document remain part of the transmitted text.
 
 We do not collect your documents or conversations into developer-operated services for
 advertising, profiling or model training. Your chosen provider may process request content,

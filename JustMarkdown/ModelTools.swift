@@ -21,6 +21,7 @@ struct ModelToolCall: Sendable, Equatable {
 struct ModelToolOutput: Sendable {
     let id: String
     let content: String
+    var images: [ModelImage] = []
 }
 
 struct ModelTurn: Sendable {
@@ -45,19 +46,31 @@ enum ModelToolWire {
         var body: [String: Any] = [
             "model": configuration.model.trimmingCharacters(in: .whitespacesAndNewlines), "stream": true,
         ]
-        var input: [[String: Any]] = messages.filter { !responses || $0.role != "system" }.map {
-            ["role": $0.role, "content": $0.content]
-        }
+        var input = messages.filter { !responses || $0.role != "system" }
+            .map { ModelWireFormat.message($0, api: configuration.apiProtocol) }
         for exchange in exchanges {
             if responses {
                 input += try exchange.turn.responseItems.map { try ModelWireFormat.object($0) }
                 input += exchange.outputs.map {
-                    ["type": "function_call_output", "call_id": $0.id, "output": $0.content]
+                    [
+                        "type": "function_call_output", "call_id": $0.id,
+                        "output": ModelWireFormat.content($0.content, images: $0.images, api: .responses),
+                    ]
                 }
             } else {
                 guard let assistant = exchange.turn.chatAssistant else { throw ModelError.invalidResponse }
                 input.append(try ModelWireFormat.object(assistant))
                 input += exchange.outputs.map { ["role": "tool", "tool_call_id": $0.id, "content": $0.content] }
+                // Chat tool messages accept text only. Supply their images as
+                // following user content, while retaining every tool result ID.
+                let images = exchange.outputs.flatMap(\.images)
+                if !images.isEmpty {
+                    input.append(
+                        ModelWireFormat.message(
+                            ChatMessage(
+                                role: "user", content: "Images returned by the preceding tools.", images: images),
+                            api: .chatCompletions))
+                }
             }
         }
         body[responses ? "input" : "messages"] = input
