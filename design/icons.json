@@ -12,13 +12,14 @@
     "cap": "round",
     "join": "round",
     "color": "currentColor",
-    "minimumHitTarget": 44
+    "minimumHitTarget": 44,
+    "readerChrome": "Outline, document close and conversation collapse share natural SF Symbols metrics at size.readerChromeIcon within size.readerChromeCanvas; artwork is not scaled to fill the canvas."
   },
   "icons": [
     {
       "action": "outline",
       "native": "sidebar.left",
-      "size": 19,
+      "size": 18,
       "web": "panel-left"
     },
     {

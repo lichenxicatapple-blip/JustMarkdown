@@ -1,4 +1,4 @@
-# JustMarkdown 品牌资源
+# MarkdownIt! 品牌资源
 
 图形和配色集中维护在本目录：
 
@@ -23,8 +23,8 @@ python3 scripts/build_native_web.py --check
 | 生成位置（仓库根目录下） | 内容 |
 | --- | --- |
 | `design/brand/production/` | 透明纸页标志、浅深色 App 图标、Icon Composer 图标包及导出清单 |
-| `JustMarkdown/Assets.xcassets/BrandMark.imageset` | 包含背景的浅深色首页矢量与资源描述；保留原始颜色 |
+| `MarkdownIt/Assets.xcassets/BrandMark.imageset` | 包含背景的浅深色首页矢量与资源描述；保留原始颜色 |
 
 `--check` 重新生成并比较所有资源，遗漏更新、直接修改或遗留文件都会使检查失败。CI 和模拟器验证复用同一入口。
 
-Icon Composer 图标包从母版生成纸页、排版和卷页三层，背景渐变取自同一配色。在 Icon Composer 中核对 `production/JustMarkdown.icon` 的浅色、深色与着色外观；调整回到母版与配色。系统图标不包含外部白边或圆角遮罩，由系统处理外形；首页矢量包含独立的圆角背景。
+Icon Composer 图标包从母版生成纸页、排版和卷页三层，背景渐变取自同一配色。在 Icon Composer 中核对 `production/MarkdownIt.icon` 的浅色、深色与着色外观；调整回到母版与配色。系统图标不包含外部白边或圆角遮罩，由系统处理外形；首页矢量包含独立的圆角背景。

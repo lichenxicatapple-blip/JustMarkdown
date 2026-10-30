@@ -155,7 +155,7 @@ func generate(_ root: URL) throws -> [String: Data] {
         Brand.self, from: Data(contentsOf: source.appendingPathComponent("brand.json")))
     _ = try viewBox(brand.iconViewBox)
     let production = "design/brand/production"
-    let assets = "JustMarkdown/Assets.xcassets"
+    let assets = "MarkdownIt/Assets.xcassets"
     var files: [String: Data] = [:]
     let variants: [(String, Brand.Appearance?)] = [
         ("mark", nil),
@@ -236,7 +236,7 @@ do {
         .resolvingSymlinksInPath()
     let files = try generate(root)
     let manager = FileManager.default
-    let roots = ["design/brand/production", "JustMarkdown/Assets.xcassets/BrandMark.imageset"]
+    let roots = ["design/brand/production", "MarkdownIt/Assets.xcassets/BrandMark.imageset"]
     var extras: [String] = []
     for directory in roots {
         let url = root.appendingPathComponent(directory)

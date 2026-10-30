@@ -1,3 +1,4 @@
+import argparse
 import copy
 import json
 import plistlib
@@ -13,6 +14,65 @@ from scripts import verify_ios
 
 
 class FullTestExecution(unittest.TestCase):
+    def test_diagnostic_selectors_accept_only_explicit_offline_methods(self):
+        self.assertEqual(
+            verify_ios.test_case_selector("MarkdownItTests/AgentFlowTests/testClosing()"),
+            "MarkdownItTests/AgentFlowTests/testClosing",
+        )
+        for invalid in [
+            "MarkdownItLiveTests/ProviderTests/testRealRequest",
+            "MarkdownItUITests",
+            "-skip-testing:MarkdownItTests/Reader/testOne",
+            "MarkdownItTests/AgentFlowTests",
+            "MarkdownItTests/AgentFlowTests/notATest",
+        ]:
+            with self.subTest(invalid=invalid), self.assertRaises(argparse.ArgumentTypeError):
+                verify_ios.test_case_selector(invalid)
+
+    def test_signatures_are_checked_before_installing_prebuilt_products(self):
+        with tempfile.TemporaryDirectory() as directory:
+            products = Path(directory)
+            metadata = self.metadata()
+            for target in metadata["TestConfigurations"][0]["TestTargets"]:
+                target.update(
+                    TestHostPath="__TESTROOT__/Debug-iphonesimulator/MarkdownIt.app",
+                    TestBundlePath="__TESTHOST__/PlugIns/MarkdownItTests.xctest",
+                )
+            specification = products / "Full.xctestrun"
+            specification.write_bytes(plistlib.dumps(metadata))
+            with patch.object(verify_ios, "run") as run:
+                verify_ios.validate_test_product_signatures(specification)
+                self.assertEqual(run.call_count, 2)
+                for call in run.call_args_list:
+                    self.assertEqual(call.args[0][:3], ["codesign", "--verify", "--strict"])
+                    self.assertNotIn("__TEST", call.args[0][-1])
+            with (
+                patch.object(
+                    verify_ios, "run", side_effect=subprocess.CalledProcessError(1, "codesign")
+                ),
+                self.assertRaisesRegex(ValueError, "Invalid code signature"),
+            ):
+                verify_ios.validate_test_product_signatures(specification)
+
+    def test_runtime_must_support_the_actual_device_type(self):
+        ordinary = {
+            "identifier": "ordinary",
+            "version": "26.5",
+            "supportedDeviceTypes": [
+                {"identifier": verify_ios.SIMULATORS[family]} for family in ["iPhone", "iPad"]
+            ],
+        }
+        duo = {
+            "identifier": "duo",
+            "version": "27.1",
+            "supportedDeviceTypes": [{"identifier": verify_ios.SIMULATORS["iPhoneDuo"]}],
+        }
+        for family in ["iPhone", "iPad"]:
+            self.assertEqual(verify_ios.compatible_runtime(family, [ordinary, duo]), ordinary)
+            with self.assertRaises(ValueError):
+                verify_ios.compatible_runtime(family, [duo])
+        self.assertEqual(verify_ios.compatible_runtime("iPhoneDuo", [ordinary, duo]), duo)
+
     def setUp(self):
         output = patch("builtins.print")
         output.start()
@@ -25,8 +85,8 @@ class FullTestExecution(unittest.TestCase):
                 {
                     "IsEnabled": True,
                     "TestTargets": [
-                        {"BlueprintName": "JustMarkdownTests"},
-                        {"BlueprintName": "JustMarkdownUITests"},
+                        {"BlueprintName": "MarkdownItTests"},
+                        {"BlueprintName": "MarkdownItUITests"},
                     ],
                 }
             ],
@@ -65,7 +125,7 @@ class FullTestExecution(unittest.TestCase):
                 metadata["TestConfigurations"][0]["TestTargets"][index][key] = value
                 with tempfile.TemporaryDirectory() as directory:
                     products = Path(directory)
-                    (products / "JustMarkdown_Full.xctestrun").write_bytes(plistlib.dumps(metadata))
+                    (products / "MarkdownIt_Full.xctestrun").write_bytes(plistlib.dumps(metadata))
                     with self.subTest(index=index, key=key), self.assertRaises(ValueError):
                         verify_ios.test_run_specification(products)
 
@@ -86,7 +146,7 @@ class FullTestExecution(unittest.TestCase):
         variants.append(empty)
         with tempfile.TemporaryDirectory() as directory:
             products = Path(directory)
-            specification = products / "JustMarkdown_Full.xctestrun"
+            specification = products / "MarkdownIt_Full.xctestrun"
             specification.write_bytes(plistlib.dumps(valid))
             self.assertEqual(verify_ios.test_run_specification(products), specification)
             for metadata in variants:
@@ -131,9 +191,9 @@ class FullTestExecution(unittest.TestCase):
 
     def test_summary_requires_actual_execution_of_every_requested_target(self):
         for names in [
-            ["JustMarkdownTests", "JustMarkdownUITests"],
-            ["JustMarkdownTests"],
-            ["JustMarkdownUITests"],
+            ["MarkdownItTests", "MarkdownItUITests"],
+            ["MarkdownItTests"],
+            ["MarkdownItUITests"],
         ]:
             outputs = [self.summary(), self.tree(names)]
             with (
@@ -172,6 +232,36 @@ class FullTestExecution(unittest.TestCase):
                     )
                 )
 
+    def test_targeted_run_requires_every_requested_method_to_execute(self):
+        tree = self.tree(["MarkdownItTests"])
+        tree["testNodes"][0]["children"][0]["children"] = [
+            {
+                "nodeType": "Test Suite",
+                "children": [
+                    {"nodeType": "Test Case", "nodeIdentifier": "AgentFlowTests/testClosing()"}
+                ],
+            }
+        ]
+        for selector, accepted in [
+            ("MarkdownItTests/AgentFlowTests/testClosing", True),
+            ("MarkdownItTests/AgentFlowTests/testMissing", False),
+        ]:
+            with (
+                self.subTest(selector=selector),
+                patch.object(
+                    verify_ios,
+                    "run",
+                    side_effect=[
+                        subprocess.CompletedProcess([], 0, json.dumps(value))
+                        for value in [self.summary(totalTestCount=1, passedTests=1), tree]
+                    ],
+                ),
+            ):
+                result = verify_ios.test_summary(
+                    Path("result.xcresult"), ["MarkdownItTests"], expected_cases=[selector]
+                )
+                self.assertEqual(result is not None, accepted)
+
     def test_failures_skips_empty_results_and_failed_xcode_exit_are_failures(self):
         for code, counts, expected in [
             (0, self.summary(), True),
@@ -192,18 +282,18 @@ class FullTestExecution(unittest.TestCase):
                 result = verify_ios.verify_family(
                     "iPhone",
                     runtime={"name": "iOS 26.5", "identifier": "runtime"},
-                    devices=[{"name": "JustMarkdown iPhone", "udid": "phone", "state": "Booted"}],
+                    devices=[{"name": "MarkdownIt iPhone", "udid": "phone", "state": "Booted"}],
                     specification=Path("full.xctestrun"),
                     output=Path(directory),
                     suite="all",
-                    prefix="JustMarkdown",
+                    prefix="MarkdownIt",
                     cancel=threading.Event(),
                 )
                 self.assertEqual(result["passed"], expected)
                 command = run_tests.call_args.args[0]
                 self.assertEqual(
                     [arg for arg in command if arg.startswith("-only-testing:")],
-                    ["-only-testing:JustMarkdownTests", "-only-testing:JustMarkdownUITests"],
+                    ["-only-testing:MarkdownItTests", "-only-testing:MarkdownItUITests"],
                 )
                 self.assertFalse(any(arg.startswith("-skip-testing:") for arg in command))
 

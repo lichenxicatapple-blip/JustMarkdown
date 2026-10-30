@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="600" height="746" viewBox="211 130 600 746" role="img" aria-labelledby="title desc">
-  <title id="title">JustMarkdown 翻页文档标志</title>
+  <title id="title">MarkdownIt 翻页文档标志</title>
   <desc id="desc">白色文档印有 .md 后缀与三行正文，右下角轻轻翻起。文字已转为路径。</desc>
   <defs>
     <linearGradient id="paper-face" x1="211" y1="130" x2="811" y2="876" gradientUnits="userSpaceOnUse">

@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' jm-resource: data: https: http:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none';"><title>MarkdownIt</title></head><body><div id="mdv-reading-concept" aria-label="Markdown reader" data-l10n-aria-label="Markdown reader">
+  <div class="mdv-app" data-layout="document" data-component="ReaderScreen" aria-label="Markdown document" data-l10n-aria-label="Markdown document"></div>
+</div>
+<!-- design-tokens -->
+<!-- motion-spec -->
+<!-- vendor-scripts -->
+<link rel="stylesheet" href="katex.css">
+<!-- reader-styles -->
+<!-- agent-styles -->
+<template id="mdv-app-template">
+  <div class="mdv-reading-layout">
+    <nav class="mdv-outline" data-component="OutlineNavigator" data-expanded="true" aria-label="Contents" data-l10n-aria-label="Contents">
+      <div class="mdv-outline-inner">
+        <div id="mdv-document-outline" class="mdv-outline-body"><ol class="mdv-outline-list"></ol></div>
+      </div>
+    </nav>
+  <div class="mdv-workspace">
+    <main class="mdv-reader" data-component="DocumentSurface">
+      <article class="mdv-article">
+      </article>
+      <div class="mdv-source-panel" aria-hidden="true" hidden></div>
+    </main>
+<!-- agent-markup -->
+  </div>
+  </div>
+</template>
+<script src="localization.js"></script>
+<script src="agent.js"></script>
+<!-- native-styles --><script src="reader.js"></script></body></html>

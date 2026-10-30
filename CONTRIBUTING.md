@@ -6,7 +6,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 系统与 IDE | macOS、Xcode 26.6 |
+| 系统与 IDE | macOS、Xcode 27.1 |
 | 模拟器 | 已安装的 iOS 26+ 运行时 |
 | 维护工具 | Python 3.10+、Node.js 22+ |
 | Swift 格式 | 根目录 `.swift-format` |
@@ -16,9 +16,9 @@
 
 ## 构建与资源维护
 
-使用 Xcode 打开 `JustMarkdown.xcodeproj`，选择 JustMarkdown scheme 构建运行。工程与共享 scheme 直接维护并提交；新增文件时核对目标归属、编译及资源阶段。
+使用 Xcode 打开 `MarkdownIt.xcodeproj`，选择 MarkdownIt scheme 构建运行。工程与共享 scheme 直接维护并提交；新增文件时核对目标归属、编译及资源阶段。
 
-原生源码按职责放入 `JustMarkdown/` 下的目录，划分见[架构设计](docs/native-architecture.md#系统组成)。移动或新增文件时，同步维护磁盘目录、Xcode 分组、[组件登记](design/components.json)与文档链接；生成文件还需更新生成器的目标路径。
+原生源码按职责放入 `MarkdownIt/` 下的目录，划分见[架构设计](docs/native-architecture.md#系统组成)。移动或新增文件时，同步维护磁盘目录、Xcode 分组、[组件登记](design/components.json)与文档链接；生成文件还需更新生成器的目标路径。
 
 修改 WebSource、设计参数、品牌资源、离线依赖或阅读夹具后执行：
 
@@ -31,27 +31,46 @@ python3 scripts/build_native_web.py --check
 
 `python3 scripts/build_native_web.py --check --audit-dependencies` 额外联网检查固定 npm 版本的公开漏洞公告，CI 使用同一入口；普通构建和 `--check` 不联网。
 
-界面翻译维护在 `JustMarkdown/Localizable.xcstrings`，系统权限说明维护在 `InfoPlist.xcstrings`。原生文案使用 SwiftUI 本地化 API 或 `String(localized:)`，由 Xcode 提取。新增或修改翻译后重新生成 Web 资源；生成器检查翻译是否完整、占位符是否一致及 Web 文案是否遗漏。验证时在 scheme 的 Application Language 中分别选择 English 和简体中文，并检查未支持语言的英文回退；不翻译文档内容和文件名。
+界面翻译维护在 `MarkdownIt/Localizable.xcstrings`，系统权限说明维护在 `InfoPlist.xcstrings`。原生文案使用 SwiftUI 本地化 API 或 `String(localized:)`，由 Xcode 提取。新增或修改翻译后重新生成 Web 资源；生成器检查翻译是否完整、占位符是否一致及 Web 文案是否遗漏。验证时在 scheme 的 Application Language 中分别选择 English 和简体中文，并检查未支持语言的英文回退；不翻译文档内容和文件名。
 
 隐私政策正文统一维护在 `docs/privacy.md` 的中英文部分；修改后运行同一资源生成器，提交供原生排版使用的政策内容。正文支持标题、段落、单段落无序列表、两列表格、加粗和链接；未支持的结构会中止生成，避免遗漏内容。应用中的政策入口不依赖网络，确认发送的授权按服务地址保存在设备上。
 
+## 版本与发布
+
+发布版本和构建号统一维护在 [`Configuration/Version.xcconfig`](Configuration/Version.xcconfig)，Debug 与 Release 引用同一份配置。`MARKETING_VERSION` 使用 `主版本.次版本.修订号`：修复增加修订号，兼容的新功能增加次版本，不兼容的变化增加主版本。`CURRENT_PROJECT_VERSION` 是递增的正整数，每次向 App Store Connect 上传新构建前增加，不因普通本地构建或测试自动变化。
+
+App 的 `Info.plist` 引用这两个构建设置，首页从已构建应用的 Bundle 元数据读取，不在界面或脚本中重复写版本。App Store 的发布版本与 `MARKETING_VERSION` 保持一致；发布标签使用 `v主版本.次版本.修订号`。同一发布版本重新上传时仅增加构建号，保留已有标签的含义。
+
+发行归档使用 Release 配置和本机开发者团队；将 `YOUR_TEAM_ID` 替换为自己的 Team ID，不把个人签名配置写入共享工程：
+
+```sh
+xcodebuild -project MarkdownIt.xcodeproj -scheme MarkdownIt \
+  -configuration Release -destination 'generic/platform=iOS' \
+  -archivePath output/MarkdownIt.xcarchive \
+  -allowProvisioningUpdates DEVELOPMENT_TEAM=YOUR_TEAM_ID archive
+```
+
+在 Xcode Organizer 中验证归档并上传至 App Store Connect。上传前核对版本、构建号、签名和 Release 资源内容。
+
 ## 测试
 
-测试按依赖环境管理。CI 使用 `JustMarkdown` scheme，真实模型使用独立的 `JustMarkdownLive` scheme；实体键盘和输入浮条由真机人工验证。
+测试按依赖环境管理。CI 使用 `MarkdownIt` scheme，真实模型使用独立的 `MarkdownItLive` scheme；实体键盘和输入浮条由真机人工验证。
 
 | 类型 | 维护位置 | 验证内容 | CI |
 | --- | --- | --- | --- |
-| 单元测试 | `JustMarkdownTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
+| 单元测试 | `MarkdownItTests` | 文档、权限、上下文、协议解析、输入处理与撤销栈 | 在 iPhone、iPad 模拟器上运行 |
 | WebKit 集成测试 | 同一目标中的 `WebReaderTests`、`AgentFlowTests` | 原生与 Web 同步、渲染、目录、编辑工具及模拟网络交互 | 在两端模拟器上运行 |
-| UI 测试 | `JustMarkdownUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 在两端模拟器上完整运行 |
-| 真实模型测试 | `JustMarkdownLiveTests` | 两种协议、多轮对话、编辑与撤销重做、答复语言、直接识图及按需读图 | 只编译，不发送请求 |
+| UI 测试 | `MarkdownItUITests` | 实际控件操作、软键盘、旋转、前后台切换及开合回归 | 在两端模拟器上完整运行 |
+| 真实模型测试 | `MarkdownItLiveTests` | 两种协议、多轮对话、编辑与撤销重做、答复语言、直接识图及按需读图 | 只编译，不发送请求 |
 | 真机人工验证 | 本节的操作流程 | 实体键盘、输入浮条、手指与触控板、系统合成与设备恢复 | 人工执行，不进入自动化 CI |
 
 ### 离线自动化测试
 
-`JustMarkdown` scheme 使用唯一的共享测试计划 [Full.xctestplan](JustMarkdown.xcodeproj/xcshareddata/xctestplans/Full.xctestplan)。本地、每次推送、PR 和手动 CI 均完整执行单元、集成和 UI 测试；新增用例由 XCTest 自动发现，不维护核心用例清单。
+`MarkdownIt` scheme 使用唯一的共享测试计划 [Full.xctestplan](MarkdownIt.xcodeproj/xcshareddata/xctestplans/Full.xctestplan)。本地、每次推送、PR 和手动 CI 均完整执行单元、集成和 UI 测试；新增用例由 XCTest 自动发现，不维护核心用例清单。
 
-本地模拟器的 I/O → Keyboard → Connect Hardware Keyboard 应保持关闭，使原生键盘布局用例使用软键盘；实体键盘按下述真机流程验证。
+在模拟器的键盘菜单中关闭实体键盘模拟，并确认点击输入框时显示完整软键盘；实体键盘按下述真机流程验证。自动化运行期间不要手动操作正在测试的模拟器或向其发送键盘快捷键；交互检查在测试结束后进行。
+
+合成填字后的触控操作先确认软键盘已实际进入屏幕，再解析下一控件的点击位置，避免使用键盘恢复前的旧布局。不要回点输入框来等待恢复；发送和设置流程断言系统编辑菜单未展开。软件按键还需检查目标按键可点击。环境不满足时验证失败，不跳过用例。
 
 运行完整的单元、WebKit 集成和 UI 测试：
 
@@ -59,20 +78,24 @@ python3 scripts/build_native_web.py --check
 python3 scripts/verify_ios.py
 ```
 
-脚本先生成资源并检查 JavaScript 语法、Swift 格式，使用 `build-for-testing` 编译一次，再选择已安装的最新 iOS 26+ 运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建；两端并行使用同一份测试产物执行 `test-without-building`。每端内部顺序执行，任一端失败不取消另一端。
+脚本先生成资源并检查 JavaScript 语法、Swift 格式，使用 `build-for-testing` 编译一次，并验证 App、测试宿主及测试包的完整代码签名，再为各设备选择已安装且兼容的最新 iOS 26+ 运行时。模拟器构建也需要签名，不能关闭 `CODE_SIGNING_ALLOWED`，否则钥匙串操作可能失败。CI 固定使用 iOS 26.5 运行时，两端仍运行全部用例；升级 CI 运行时前先完成对照验证。本地未指定版本时继续选择最新兼容运行时。项目专用 iPhone／iPad 模拟器已存在则复用，缺少时创建；两端并行使用同一份测试产物执行 `test-without-building`。每端内部顺序执行，任一端失败不取消另一端。
 
 Xcode 输出实时显示并保留完整日志，控制台可查看当前测试及结果。启用 XCTest 单项超时；连续 10 分钟没有输出时中断测试并收集诊断。CI 的完整测试步骤上限为 30 分钟，整项任务上限为 40 分钟，包含构建、检查和诊断上传。运行期间使用系统 `caffeinate` 防止空闲休眠。
 
 | 参数 | 行为 |
 | --- | --- |
 | 不传参数 | 运行两端；产物写入 `output/native/` 下的本次运行目录 |
-| `--family iPhone` / `--family iPad` | 只验证指定设备类型 |
+| `--family iPhone` / `--family iPad` / `--family iPhoneDuo` | 只验证指定设备类型；Duo 需 iOS 27.1 运行时，执行相同的完整测试计划 |
 | `--output /临时目录/本次运行` | 使用指定且尚不存在的产物目录 |
 | `--suite unit` / `--suite ui` | 分别运行单元／集成目标或 UI 目标；默认运行全部 |
+| `--test-case Target/TestClass/testMethod` | 定向排查单个方法，可重复指定；与全量验证共用构建和签名检查，不与 `--suite` 合用 |
+| `--runtime 26.5` | 显式使用已安装的指定版本作对照；默认仍选择各设备兼容的最新版本，结果记录实际运行时 |
 | `--test-products /临时目录/Products` | 使用同版本 Xcode 构建的可迁移测试产物，不重复构建或检查源码 |
-| `--simulator-prefix 名称` | 隔离模拟器名称；默认 `JustMarkdown`，CI 使用 `JustMarkdown CI` |
+| `--simulator-prefix 名称` | 隔离模拟器名称；默认 `MarkdownIt`，CI 使用 `MarkdownIt CI` |
 
 脚本校验共享计划和编译产物都包含完整的单元／集成、UI 目标，拒绝禁用、排除或仅选择部分用例的计划。结果必须包含所有请求的测试目标，全部通过且跳过数为零；空结果、缺少目标或未完成的结果均导致失败。每端的结果、模拟器准备与测试执行耗时写入 `results.json`；日志与 `.xcresult` 保存在本次产物目录。
+
+定向排查也使用此脚本，不另写构建命令。指定 `--test-case` 时，结果标记为 `targeted` 并校验每个指定方法实际执行；它不替代修复后的完整回归，也不改变 CI 的全量范围。
 
 这些测试只使用模拟网络或本机端口，不连接真实模型服务，不需要外部 API Key。测试凭据与正常 App 隔离，结束删除测试记录。未经维护者明确许可，不得跳过测试或通过排除必测用例绕过失败；环境或配置不足应报告为验证阻塞。脚本要求所有用例通过且跳过数为零。
 
@@ -105,11 +128,11 @@ Debug 的 `--sample-document` 打开长文副本，`--reset-sample-document` 重
 
 ### 真实模型测试
 
-选择 `JustMarkdownLive` scheme，运行 [LiveModelTests.swift](JustMarkdownLiveTests/LiveModelTests.swift) 的全部用例。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
+选择 `MarkdownItLive` scheme，运行 [LiveModelTests.swift](MarkdownItLiveTests/LiveModelTests.swift) 的全部用例。该目标仅接受 HTTPS Atlas 端点，缺少配置时测试失败，不自动跳过或降级为模拟请求。
 
 1. 在仓库外准备权限为 `0600` 的私有 JSON 文件，包含 `baseURL`、`model`、`key`，以及可选的 `apiProtocol`（`responses` 或 `chatCompletions`；省略时分别测试两种协议）。
-2. 将 `JustMarkdownLive` 复制为本机非共享 scheme，在 Test → Arguments 中维护本机环境变量；Test 不沿用 Run 的参数与环境变量。
-3. 添加 `JUSTMARKDOWN_LIVE_CONFIG` 指向配置文件，设置 `CFNETWORK_DIAGNOSTICS=0`。
+2. 将 `MarkdownItLive` 复制为本机非共享 scheme，在 Test → Arguments 中维护本机环境变量；Test 不沿用 Run 的参数与环境变量。
+3. 添加 `MARKDOWNIT_LIVE_CONFIG` 指向配置文件，设置 `CFNETWORK_DIAGNOSTICS=0`。
 4. 分别选择 iPhone 与 iPad 模拟器运行该 scheme。
 
 选择支持工具调用的模型与接口组合；只验证一种协议时填写 `apiProtocol`。实体设备运行时，将配置文件放入测试宿主 App 的沙盒，环境变量支持以 `~/` 开头的应用内路径。

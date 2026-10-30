@@ -2,4 +2,6 @@
 # 12.2.0 bundle triggers generic-api-key. Both copies match the upstream release.
 # Keep this exception tied to these exact file/rule/line fingerprints.
 vendor/mermaid.js:generic-api-key:636
-JustMarkdown/Resources/Web/mermaid.js:generic-api-key:636
+MarkdownIt/Resources/Web/mermaid.js:generic-api-key:636
+# The same pinned bundle before the App directory was renamed.
+fa48568cd1367389cdac0a96f59bce4d3b7f5af6:JustMarkdown/Resources/Web/mermaid.js:generic-api-key:636

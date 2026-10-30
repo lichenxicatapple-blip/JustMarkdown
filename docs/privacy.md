@@ -1,19 +1,19 @@
-# JustMarkdown 隐私政策 / Privacy Policy
+# MarkdownIt! 隐私政策 / Privacy Policy
 
 [中文](#中文) · [English](#english)
 
 ## 中文
 
-**更新日期：** 2026-10-28\
+**更新日期：** 2026-10-30\
 **发布者：** CHENXI LI（个人开发者）\
 **联系邮箱：** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
 ### 1. 适用范围
 
-本政策说明个人开发者 CHENXI LI（下称“我们”）发布的 JustMarkdown 如何处理信息。
+本政策说明个人开发者 CHENXI LI（下称“我们”）发布的 MarkdownIt! 如何处理信息。
 第三方自行修改或分发的版本，应以相应发布者提供的政策为准。
 
-JustMarkdown 是本地 Markdown 阅读与编辑工具，不要求注册账号，不包含广告、分析 SDK
+MarkdownIt! 是本地 Markdown 阅读与编辑工具，不要求注册账号，不包含广告、分析 SDK
 或跨 App 跟踪功能，也不提供由开发者运营的文档存储、同步或 AI 中转服务器。
 
 ### 2. 在设备上处理的信息
@@ -41,6 +41,7 @@ AI 服务由你通过服务地址、模型和 API Key 自行配置。请求直�
   也可能发起查询。查询使用你填写的 API Key 认证，不包含文档正文。
 - 发送 AI 消息会将当前文档全文、所选片段、你的问题和本次会话历史发送至所配服务。
   请求还可能包含文档文件名、内容版本及当前可用能力。仅选中一段文字不代表只发送该片段。
+- 长对话可能由同一服务整理为摘要，较长文档和引用可能分次按需发送；整理过程也会向该服务发送相关会话内容。
 - 源码编辑任务可能包含后续模型请求，以及当前文档编辑工具的参数、结果和修改内容。
 - 选中的图片随问题发送实际画面。全局 AI 先发送文档中的图片引用清单，模型可按需读取并接收相关图片；
   不会每轮主动发送全部图片。本地图片受已有文件授权限制，网络图片由应用按其引用地址下载。
@@ -99,17 +100,17 @@ Apple 或你使用的文件提供程序、备份服务可能依据其政策处�
 
 ## English
 
-**Last updated:** 2026-10-28\
+**Last updated:** 2026-10-30\
 **Publisher:** CHENXI LI (individual developer)\
 **Contact:** [lichenxi.catapple@gmail.com](mailto:lichenxi.catapple@gmail.com)
 
 ### 1. Scope
 
-This policy explains how JustMarkdown, published by CHENXI LI, an individual developer
+This policy explains how MarkdownIt!, published by CHENXI LI, an individual developer
 (“we”), handles information. Versions modified or distributed independently by other
 parties are subject to their respective publishers’ policies.
 
-JustMarkdown is a local Markdown reader and editor. It does not require an account,
+MarkdownIt! is a local Markdown reader and editor. It does not require an account,
 include advertising, analytics SDKs or cross-app tracking, or provide developer-operated
 document storage, synchronization or AI relay servers.
 
@@ -144,6 +145,9 @@ ask again for that service. A different service address requires new permission.
   your question and the current conversation history to your configured service.
   Requests may also include the document filename, content version and currently
   available capabilities. Selecting a passage does not limit transmission to that passage.
+- Long conversations may be summarized by the same service, and long documents or
+  references may be sent in parts on demand. Summarization also sends relevant
+  conversation content to that service.
 - Source-editing tasks may involve follow-up model requests containing current-document
   tool arguments, results and changes.
 - Selected images are sent as actual image content with your question. Global AI initially

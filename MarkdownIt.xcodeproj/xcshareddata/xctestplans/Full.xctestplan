@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "id": "87EABEB2-E9C9-45D9-A1BA-57D54C78AEF2",
+      "name": "Default",
+      "options": {}
+    }
+  ],
+  "defaultOptions": {},
+  "testTargets": [
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:MarkdownIt.xcodeproj",
+        "identifier": "EF644C561F63D881C4203919",
+        "name": "MarkdownItTests"
+      }
+    },
+    {
+      "parallelizable": false,
+      "target": {
+        "containerPath": "container:MarkdownIt.xcodeproj",
+        "identifier": "E09ED1F8D73EA769664B1856",
+        "name": "MarkdownItUITests"
+      }
+    }
+  ],
+  "version": 1
+}

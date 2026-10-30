@@ -6,7 +6,7 @@
     {
       "id": "ReaderScreen",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift"
       ],
       "owns": [
         "Home",
@@ -27,7 +27,7 @@
     {
       "id": "Home",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift"
       ],
       "owns": [
         "RecentDocuments",
@@ -41,8 +41,8 @@
     {
       "id": "RecentDocuments",
       "nativeOwners": [
-        "JustMarkdown/Documents/RecentDocumentsView.swift",
-        "JustMarkdown/Documents/RecentDocuments.swift"
+        "MarkdownIt/Documents/RecentDocumentsView.swift",
+        "MarkdownIt/Documents/RecentDocuments.swift"
       ],
       "invariants": [
         "The sheet and popover share the same list and successfully opened original-file records."
@@ -52,15 +52,15 @@
     {
       "id": "DocumentSurface",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderWebView.swift",
-        "JustMarkdown/Reader/ReaderViewport.swift",
-        "JustMarkdown/Editor/SourceEditor.swift"
+        "MarkdownIt/Reader/ReaderWebView.swift",
+        "MarkdownIt/Reader/ReaderViewport.swift",
+        "MarkdownIt/Editor/SourceEditor.swift"
       ],
       "webOwners": [
-        "JustMarkdown/WebSource/reader.html",
-        "JustMarkdown/WebSource/reader.js",
-        "JustMarkdown/WebSource/reader.css",
-        "JustMarkdown/WebSource/native.css"
+        "MarkdownIt/WebSource/reader.html",
+        "MarkdownIt/WebSource/reader.js",
+        "MarkdownIt/WebSource/reader.css",
+        "MarkdownIt/WebSource/native.css"
       ],
       "selector": "[data-component='DocumentSurface']",
       "owns": [
@@ -79,11 +79,11 @@
     {
       "id": "OutlineNavigator",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift"
       ],
       "webOwners": [
-        "JustMarkdown/WebSource/reader.js",
-        "JustMarkdown/WebSource/reader.css"
+        "MarkdownIt/WebSource/reader.js",
+        "MarkdownIt/WebSource/reader.css"
       ],
       "selector": "[data-component='OutlineNavigator']",
       "owns": [
@@ -99,8 +99,8 @@
     {
       "id": "OutlineRow",
       "webOwners": [
-        "JustMarkdown/WebSource/reader.js",
-        "JustMarkdown/WebSource/reader.css"
+        "MarkdownIt/WebSource/reader.js",
+        "MarkdownIt/WebSource/reader.css"
       ],
       "selector": "[data-component='OutlineRow']",
       "invariants": [
@@ -111,20 +111,25 @@
     {
       "id": "FloatingActions",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift",
-        "JustMarkdown/Reader/ReaderFloatingControls.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderFloatingControls.swift"
       ],
       "invariants": [
         "Both document modes reuse the same AI, mode-switch and More controls; source history actions join this group.",
+        "All window widths retain one trailing disclosure; source focus and window resizing preserve its expanded state.",
+        "Expansion keeps the disclosure anchored and action slots stable; actions travel left and return along the same path while the chevron rotates continuously, including rapid reversals.",
+        "Collapsed actions neither receive touches nor appear in the accessibility tree, and their vacant slots pass document input through.",
+        "More shares SwiftUI symbol rendering and motion with adjacent actions; its transparent native button owns menu interaction only.",
         "The fixed More menu keeps its contents stable throughout presentation; surrounding state updates must not replace an in-flight touch target.",
-        "Native keyboard geometry positions the shared group above input UI without intercepting touches outside the controls; only input covering the entire bottom edge reduces the document viewport."
+        "Native keyboard geometry positions the shared group above input UI without intercepting touches outside the controls; only input covering the entire bottom edge reduces the document viewport.",
+        "System keyboard animation timing stays in charge; unanimated input-toolbar guide updates receive interruptible native layout animation, without changing keyboard geometry."
       ],
       "specification": "design/README.md#阅读与源码"
     },
     {
       "id": "SelectionQuestionMenu",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderWebView.swift"
+        "MarkdownIt/Reader/ReaderWebView.swift"
       ],
       "uses": [
         "QuestionPanel"
@@ -137,9 +142,9 @@
     {
       "id": "QuestionPanel",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/panel.html",
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/panel.html",
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": "[data-component='QuestionPanel']",
       "owns": [
@@ -150,15 +155,16 @@
         "Global and selection entries share one conversation across compact and regular presentations.",
         "The collapse control floats over the conversation without a dedicated header row; assistant content retains shared reading insets.",
         "The side-panel collapse control shares the document close control's horizontal centerline and hit-target size; panel top and bottom margins may differ.",
-        "Outline and conversation are mutually exclusive when three readable columns do not fit; narrowing retains the last actively used panel and widening does not reopen either."
+        "Outline and conversation are mutually exclusive when three readable columns do not fit; narrowing retains the last actively used panel and widening does not reopen either.",
+        "Outline, document close and conversation collapse share native SF artwork and point size, centered without enlarging glyphs within the shared canvas; independent targets remain 44pt."
       ],
       "specification": "design/README.md#ai-对话"
     },
     {
       "id": "ConversationThread",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": ".mdv-conversation",
       "owns": [
@@ -173,13 +179,13 @@
     {
       "id": "ConversationComposer",
       "nativeOwners": [
-        "JustMarkdown/AI/NativeComposerHost.swift",
-        "JustMarkdown/AI/ConversationInput.swift"
+        "MarkdownIt/AI/NativeComposerHost.swift",
+        "MarkdownIt/AI/ConversationInput.swift"
       ],
       "webOwners": [
-        "JustMarkdown/WebSource/native-agent.js",
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/native-agent.js",
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": ".mdv-composer",
       "owns": [
@@ -194,8 +200,8 @@
     {
       "id": "ContextAttachment",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": ".mdv-composer-reference",
       "uses": [
@@ -209,8 +215,8 @@
     {
       "id": "ConversationTurn",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": ".mdv-turn",
       "owns": [
@@ -228,8 +234,8 @@
     {
       "id": "RequestStatus",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": "[data-component='RequestStatus']",
       "invariants": [
@@ -241,8 +247,8 @@
     {
       "id": "DocumentChange",
       "webOwners": [
-        "JustMarkdown/WebSource/agent/agent.js",
-        "JustMarkdown/WebSource/agent/agent.css"
+        "MarkdownIt/WebSource/agent/agent.js",
+        "MarkdownIt/WebSource/agent/agent.css"
       ],
       "selector": ".mdv-proposal",
       "invariants": [
@@ -253,8 +259,8 @@
     {
       "id": "RichText",
       "webOwners": [
-        "JustMarkdown/WebSource/reader.js",
-        "JustMarkdown/WebSource/agent/agent.js"
+        "MarkdownIt/WebSource/reader.js",
+        "MarkdownIt/WebSource/agent/agent.js"
       ],
       "selector": ".mdv-rich-text",
       "invariants": [
@@ -266,8 +272,8 @@
     {
       "id": "ModelSettings",
       "nativeOwners": [
-        "JustMarkdown/AI/ModelSettingsView.swift",
-        "JustMarkdown/AI/ModelSelectionView.swift"
+        "MarkdownIt/AI/ModelSettingsView.swift",
+        "MarkdownIt/AI/ModelSelectionView.swift"
       ],
       "invariants": [
         "One native modal owns settings navigation and blocks the underlying reader."
@@ -277,8 +283,9 @@
     {
       "id": "ModelConfigurationPrompt",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift",
-        "JustMarkdown/Reader/ReaderSession.swift"
+        "MarkdownIt/Reader/ReaderAlert.swift",
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderSession.swift"
       ],
       "invariants": [
         "Configuration resumes the original AI entry only for the same document and never submits a question."
@@ -288,19 +295,23 @@
     {
       "id": "DocumentClose",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift",
-        "JustMarkdown/Reader/ReaderSession.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderSession.swift",
+        "MarkdownIt/Reader/ReaderFloatingControls.swift",
+        "MarkdownIt/Reader/ReaderAlert.swift"
       ],
       "invariants": [
-        "Returning home follows successful document closure or explicit discard after a failed save."
+        "Returning home follows successful document closure or explicit discard after a failed save.",
+        "One close control moves to the document column’s leading edge while a side conversation is open, stays distinct from outline controls, and returns to the trailing edge on collapse; its wind-up, dash and landing retarget from the current pose and respect Reduce Motion.",
+        "Retry and discard begin after the save-failure alert finishes dismissal, so an immediate repeated failure presents a new alert."
       ],
       "specification": "design/README.md#模型设置与系统提示"
     },
     {
       "id": "SourceHistory",
       "nativeOwners": [
-        "JustMarkdown/Editor/SourceHistory.swift",
-        "JustMarkdown/Editor/SourceEditor.swift"
+        "MarkdownIt/Editor/SourceHistory.swift",
+        "MarkdownIt/Editor/SourceEditor.swift"
       ],
       "invariants": [
         "The native document model owns one working text and one undo history for typing, composition, paste, AI transactions, system editing actions and touch controls."
@@ -310,7 +321,7 @@
     {
       "id": "PrivacyPolicy",
       "nativeOwners": [
-        "JustMarkdown/Privacy/PrivacyPolicyView.swift"
+        "MarkdownIt/Privacy/PrivacyPolicyView.swift"
       ],
       "invariants": [
         "One quiet homepage entry presents the bundled policy with native text, lists, tables and scrolling in the App language."
@@ -320,9 +331,9 @@
     {
       "id": "ModelDataConsentPrompt",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderScreen.swift",
-        "JustMarkdown/Reader/ReaderSession.swift",
-        "JustMarkdown/AI/ModelDataConsent.swift"
+        "MarkdownIt/Reader/ReaderScreen.swift",
+        "MarkdownIt/Reader/ReaderSession.swift",
+        "MarkdownIt/AI/ModelDataConsent.swift"
       ],
       "invariants": [
         "The first send to each service requires explicit native approval; cancellation preserves the draft and reference without starting a request."
@@ -332,11 +343,11 @@
     {
       "id": "ImageActionMenu",
       "nativeOwners": [
-        "JustMarkdown/Reader/ReaderImageMenu.swift"
+        "MarkdownIt/Reader/ReaderImageMenu.swift"
       ],
       "webOwners": [
-        "JustMarkdown/WebSource/native-bridge.js",
-        "JustMarkdown/WebSource/native.css"
+        "MarkdownIt/WebSource/native-bridge.js",
+        "MarkdownIt/WebSource/native.css"
       ],
       "uses": [
         "QuestionPanel",

@@ -7,6 +7,7 @@ import concurrent.futures
 import json
 import os
 import plistlib
+import re
 import selectors
 import signal
 import subprocess
@@ -20,9 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SIMULATORS = {
     "iPhone": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
     "iPad": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5-12GB",
+    "iPhoneDuo": "com.apple.CoreSimulator.SimDeviceType.iPhone-Duo",
 }
-TEST_TARGETS = {"unit": "JustMarkdownTests", "ui": "JustMarkdownUITests"}
-TEST_PLANS = ROOT / "JustMarkdown.xcodeproj/xcshareddata/xctestplans"
+TEST_TARGETS = {"unit": "MarkdownItTests", "ui": "MarkdownItUITests"}
+TEST_PLANS = ROOT / "MarkdownIt.xcodeproj/xcshareddata/xctestplans"
 
 
 def validate_test_plan():
@@ -68,6 +70,38 @@ def test_run_specification(products):
     return specification
 
 
+def validate_test_product_signatures(specification):
+    """Reject linker-only signatures before installing a Keychain-using app."""
+    metadata = plistlib.loads(specification.read_bytes())
+    bundles = set()
+    for configuration in metadata["TestConfigurations"]:
+        for target in configuration["TestTargets"]:
+            host = target["TestHostPath"].replace("__TESTROOT__", str(specification.parent))
+            for key in ["TestHostPath", "TestBundlePath", "UITargetAppPath"]:
+                if key not in target:
+                    continue
+                path = target[key].replace("__TESTHOST__", host)
+                path = path.replace("__TESTROOT__", str(specification.parent))
+                bundles.add(Path(path))
+    for bundle in sorted(bundles):
+        try:
+            run(["codesign", "--verify", "--strict", str(bundle)], capture_output=True)
+        except subprocess.CalledProcessError as error:
+            raise ValueError(
+                f"Invalid code signature: {bundle.name}. Rebuild with verify_ios.py; "
+                "do not disable code signing for simulator tests."
+            ) from error
+
+
+def test_case_selector(value):
+    """Accept explicit offline test methods, never exclusion or target overrides."""
+    if not re.fullmatch(
+        r"(MarkdownItTests|MarkdownItUITests)/[A-Za-z_]\w*/test\w+(?:\(\))?", value
+    ):
+        raise argparse.ArgumentTypeError("Use Target/TestClass/testMethod for an offline test")
+    return value.removesuffix("()")
+
+
 def run(arguments, **options):
     return subprocess.run(arguments, cwd=ROOT, check=True, **options)
 
@@ -80,6 +114,19 @@ def simulator_data(kind):
             text=True,
         ).stdout
     )
+
+
+def compatible_runtime(family, runtimes):
+    """Duo-only runtimes must not be paired with a conventional phone or iPad."""
+    compatible = [
+        runtime
+        for runtime in runtimes
+        if SIMULATORS[family]
+        in {item["identifier"] for item in runtime.get("supportedDeviceTypes", [])}
+    ]
+    if not compatible:
+        raise ValueError(f"Install a simulator runtime supporting {family} in Xcode.")
+    return max(compatible, key=lambda item: tuple(map(int, item["version"].split("."))))
 
 
 def run_tests(arguments, log, inactivity_timeout=600, cancel=None, label=None):
@@ -183,7 +230,7 @@ def failure_details(bundle, device, output):
                     "--last",
                     "45m",
                     "--predicate",
-                    'subsystem == "dev.catli.JustMarkdown" AND category == "Documents"',
+                    'subsystem == "dev.catli.MarkdownIt" AND category == "Documents"',
                 ],
                 stdout=stream,
                 stderr=subprocess.STDOUT,
@@ -195,8 +242,8 @@ def failure_details(bundle, device, output):
         print(f"Unable to collect document diagnostics: {type(error).__name__}", flush=True)
 
 
-def test_summary(bundle, expected_targets):
-    """Require a complete offline XCTest result; skipped cases fail verification."""
+def test_summary(bundle, expected_targets, expected_cases=()):
+    """Require every requested offline test to execute; skips fail verification."""
     try:
         summary = json.loads(
             run(
@@ -228,6 +275,18 @@ def test_summary(bundle, expected_targets):
         ]
         if {node["name"] for node in bundles} != set(expected_targets):
             raise ValueError("XCTest did not execute every requested target")
+        executed = set()
+
+        def collect(node, target):
+            if node.get("nodeType") == "Test Case":
+                executed.add(f"{target}/{node['nodeIdentifier'].removesuffix('()')}")
+            for child in node.get("children", []):
+                collect(child, target)
+
+        for bundle_node in bundles:
+            collect(bundle_node, bundle_node["name"])
+        if not set(expected_cases).issubset(executed):
+            raise ValueError("XCTest did not execute every requested test case")
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError) as error:
         print(f"Unable to verify XCTest results: {type(error).__name__}", flush=True)
         return None
@@ -238,8 +297,10 @@ def test_summary(bundle, expected_targets):
     return counts
 
 
-def verify_family(family, runtime, devices, specification, output, suite, prefix, cancel):
-    """Execute a complete target selection on one dedicated simulator."""
+def verify_family(
+    family, runtime, devices, specification, output, suite, prefix, cancel, test_cases=()
+):
+    """Execute the requested offline tests on one dedicated simulator."""
     started = time.monotonic()
     name = f"{prefix} {family}"
     device = next((item for item in devices if item["name"] == name), None)
@@ -259,8 +320,15 @@ def verify_family(family, runtime, devices, specification, output, suite, prefix
     print(f"{family}: simulator ready after {preparation_seconds:.1f}s", flush=True)
     bundle = output / f"{family}.xcresult"
     log = output / f"{family}.log"
-    selected = list(TEST_TARGETS.values()) if suite == "all" else [TEST_TARGETS[suite]]
-    print(f"{family}: running Full plan: {', '.join(selected)}", flush=True)
+    selected = (
+        list(dict.fromkeys(test_cases))
+        if test_cases
+        else list(TEST_TARGETS.values())
+        if suite == "all"
+        else [TEST_TARGETS[suite]]
+    )
+    scope = "targeted" if test_cases else suite
+    print(f"{family}: running {scope}: {', '.join(selected)}", flush=True)
     started = time.monotonic()
     code = run_tests(
         [
@@ -283,7 +351,9 @@ def verify_family(family, runtime, devices, specification, output, suite, prefix
         label=family,
     )
     execution_seconds = time.monotonic() - started
-    counts = test_summary(bundle, selected)
+    counts = test_summary(
+        bundle, {item.split("/")[0] for item in selected}, expected_cases=test_cases
+    )
     passed = (
         code == 0
         and counts is not None
@@ -304,6 +374,7 @@ def verify_family(family, runtime, devices, specification, output, suite, prefix
         "passed": passed,
         "testCounts": counts,
         "suite": suite,
+        "scope": scope,
         "testPlan": "Full",
         "preparationSeconds": round(preparation_seconds, 1),
         "executionSeconds": round(execution_seconds, 1),
@@ -316,8 +387,17 @@ def verify_family(family, runtime, devices, specification, output, suite, prefix
 def verify_families(families, **options):
     """Run each family once; a failure must not suppress the other family's result."""
     results = {}
+
+    def verify(family):
+        selected = dict(options)
+        if "runtimes" in selected:
+            runtime = compatible_runtime(family, selected.pop("runtimes"))
+            selected["runtime"] = runtime
+            selected["devices"] = selected.pop("devices_by_runtime").get(runtime["identifier"], [])
+        return verify_family(family, **selected)
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(families)) as executor:
-        futures = {executor.submit(verify_family, family, **options): family for family in families}
+        futures = {executor.submit(verify, family): family for family in families}
         for future in concurrent.futures.as_completed(futures):
             family = futures[future]
             try:
@@ -336,15 +416,25 @@ def main():
     )
     parser.add_argument("--test-products", type=Path, help="Use prebuilt simulator test products")
     parser.add_argument("--suite", choices=["all", *TEST_TARGETS], default="all")
+    parser.add_argument("--runtime", help="Use an explicitly installed iOS version for comparison")
     parser.add_argument(
-        "--simulator-prefix", default="JustMarkdown", help="Name prefix for dedicated simulators"
+        "--test-case",
+        type=test_case_selector,
+        action="append",
+        default=[],
+        help="Run an explicit test method for diagnosis; repeat for multiple methods",
+    )
+    parser.add_argument(
+        "--simulator-prefix", default="MarkdownIt", help="Name prefix for dedicated simulators"
     )
     args = parser.parse_args()
     if not args.simulator_prefix.strip():
         parser.error("simulator-prefix must not be empty")
+    if args.test_case and args.suite != "all":
+        parser.error("Use either --test-case or --suite, not both")
     validate_test_plan()
-    if not (ROOT / "JustMarkdown.xcodeproj/project.pbxproj").is_file():
-        raise SystemExit("Missing JustMarkdown.xcodeproj. Use a complete project checkout.")
+    if not (ROOT / "MarkdownIt.xcodeproj/project.pbxproj").is_file():
+        raise SystemExit("Missing MarkdownIt.xcodeproj. Use a complete project checkout.")
     cancel = threading.Event()
     previous_handlers = {
         sig: signal.signal(sig, lambda _signal, _frame: cancel.set())
@@ -361,7 +451,7 @@ def verify(args, cancel):
     if args.test_products is None:
         run([sys.executable, "scripts/build_native_web.py"])
         for script in ["reader.js", "agent.js", "localization.js"]:
-            run(["node", "--check", f"JustMarkdown/Resources/Web/{script}"])
+            run(["node", "--check", f"MarkdownIt/Resources/Web/{script}"])
         run(
             [
                 "xcrun",
@@ -371,10 +461,10 @@ def verify(args, cancel):
                 "--recursive",
                 "--configuration",
                 ".swift-format",
-                "JustMarkdown",
-                "JustMarkdownTests",
-                "JustMarkdownUITests",
-                "JustMarkdownLiveTests",
+                "MarkdownIt",
+                "MarkdownItTests",
+                "MarkdownItUITests",
+                "MarkdownItLiveTests",
                 "scripts",
             ]
         )
@@ -384,11 +474,13 @@ def verify(args, cancel):
         if item["isAvailable"]
         and item.get("platform") == "iOS"
         and int(item["version"].split(".")[0]) >= 26
+        and (args.runtime is None or item["version"] == args.runtime)
     ]
     if not runtimes:
-        raise SystemExit("Install an iOS 26+ simulator runtime in Xcode before verification.")
-    runtime = max(runtimes, key=lambda item: tuple(map(int, item["version"].split("."))))
-    devices = simulator_data("devices")["devices"].get(runtime["identifier"], [])
+        raise SystemExit(
+            f"No installed iOS 26+ runtime matches {args.runtime or 'the requested platform'}."
+        )
+    devices = simulator_data("devices")["devices"]
     output = (
         args.output
         or ROOT / "output/native" / datetime.now().strftime("validation-%Y%m%d-%H%M%S-%f")
@@ -404,9 +496,9 @@ def verify(args, cancel):
             [
                 "xcodebuild",
                 "-project",
-                "JustMarkdown.xcodeproj",
+                "MarkdownIt.xcodeproj",
                 "-scheme",
-                "JustMarkdown",
+                "MarkdownIt",
                 "-testPlan",
                 "Full",
                 "-destination",
@@ -421,16 +513,18 @@ def verify(args, cancel):
         if code:
             return code
     specification = test_run_specification(products)
-    families = [args.family] if args.family else list(SIMULATORS)
+    validate_test_product_signatures(specification)
+    families = [args.family] if args.family else ["iPhone", "iPad"]
     results = verify_families(
         families,
-        runtime=runtime,
-        devices=devices,
+        runtimes=runtimes,
+        devices_by_runtime=devices,
         specification=specification,
         output=output,
         suite=args.suite,
         prefix=args.simulator_prefix,
         cancel=cancel,
+        test_cases=args.test_case,
     )
     (output / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     print(output, flush=True)

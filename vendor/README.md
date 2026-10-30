@@ -11,7 +11,7 @@ intentionally retains only
 WOFF2 font sources for the iOS 26 baseline; its fonts are unchanged upstream files.
 
 `scripts/build_native_web.py` checks the checksums before packaging. Web dependency
-licenses are copied alongside the libraries in `JustMarkdown/Resources/Web` and
+licenses are copied alongside the libraries in `MarkdownIt/Resources/Web` and
 into the app. Mermaid's bundled license-information comment is part of the original
 script and must remain intact. Lucide's license file includes both its ISC and MIT
 notices. DOMPurify is distributed here under its upstream Apache-2.0 option.

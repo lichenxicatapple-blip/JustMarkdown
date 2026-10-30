@@ -1,12 +1,12 @@
 # 架构设计
 
-JustMarkdown 是面向 iPhone 和 iPad 的单文档 Markdown 阅读与编辑应用，部署基线为 iOS / iPadOS 26、Swift 6。本文说明当前系统的职责划分、状态归属、关键流程和数据边界；界面行为见[设计规范](../design/README.md)，构建与验证方法见[贡献指南](../CONTRIBUTING.md)。
+MarkdownIt 是面向 iPhone 和 iPad 的单文档 Markdown 阅读与编辑应用，部署基线为 iOS / iPadOS 26、Swift 6。本文说明当前系统的职责划分、状态归属、关键流程和数据边界；界面行为见[设计规范](../design/README.md)，构建与验证方法见[贡献指南](../CONTRIBUTING.md)。
 
 ## 系统组成
 
 SwiftUI／UIKit 负责系统能力、源码编辑与输入，WKWebView 负责只读文档快照、目录和对话的富文本呈现。源码工作文本与撤销历史由原生层持有，Markdown、数学和图表渲染由离线 Web 组件复用；文件访问、凭据和模型请求保留在原生层。
 
-原生源码位于 `JustMarkdown/`，磁盘目录与 Xcode 分组保持一致。应用入口 `JustMarkdownApp.swift` 留在顶层，其余按职责组织；这些目录属于同一个 App target，不形成独立模块。
+原生源码位于 `MarkdownIt/`，磁盘目录与 Xcode 分组保持一致。应用入口 `MarkdownItApp.swift` 留在顶层，其余按职责组织；这些目录属于同一个 App target，不形成独立模块。
 
 | 目录 | 职责 |
 | --- | --- |
@@ -40,13 +40,13 @@ flowchart LR
 
 | 边界 | 主要实现 | 职责 |
 | --- | --- | --- |
-| 原生呈现与协调 | [ReaderScreen](../JustMarkdown/Reader/ReaderScreen.swift)、[ReaderSession](../JustMarkdown/Reader/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
-| WebKit 桥接与输入 | [ReaderWebView](../JustMarkdown/Reader/ReaderWebView.swift)、[NativeComposerHost](../JustMarkdown/AI/NativeComposerHost.swift)、[ConversationInput](../JustMarkdown/AI/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
-| 源码编辑与历史 | [SourceEditor](../JustMarkdown/Editor/SourceEditor.swift)、[SourceHistory](../JustMarkdown/Editor/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
-| 文档与授权 | [MarkdownDocument](../JustMarkdown/Documents/MarkdownDocument.swift)、[LocalResources](../JustMarkdown/Documents/LocalResources.swift)、[RecentDocuments](../JustMarkdown/Documents/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
-| 文档与对话呈现 | [WebSource](../JustMarkdown/WebSource/) | 解析、清理、排版、预览位置映射、富文本选段和对话状态 |
-| Agent 执行 | [AgentPrompt](../JustMarkdown/AI/AgentPrompt.swift)、[AgentContextBuilder](../JustMarkdown/AI/AgentContextBuilder.swift)、[AgentModelTransport](../JustMarkdown/AI/AgentModelTransport.swift)、[AgentDocumentTools](../JustMarkdown/AI/AgentDocumentTools.swift)、[AgentImages](../JustMarkdown/AI/AgentImages.swift) | 模式提示词、请求快照、上下文版本、生成、工具执行与恢复 |
-| 供应商适配 | [ModelClient](../JustMarkdown/AI/ModelClient.swift)、[ModelWireFormat](../JustMarkdown/AI/ModelWireFormat.swift)、[ModelCatalog](../JustMarkdown/AI/ModelCatalog.swift) | 协议编码、流解析、错误分类和模型目录缓存 |
+| 原生呈现与协调 | [ReaderScreen](../MarkdownIt/Reader/ReaderScreen.swift)、[ReaderSession](../MarkdownIt/Reader/ReaderSession.swift) | 入口、面板、当前文档、保存协调与文档身份 |
+| WebKit 桥接与输入 | [ReaderWebView](../MarkdownIt/Reader/ReaderWebView.swift)、[NativeComposerHost](../MarkdownIt/AI/NativeComposerHost.swift)、[ConversationInput](../MarkdownIt/AI/ConversationInput.swift) | 双向消息、系统选择菜单、原生输入及键盘事件 |
+| 源码编辑与历史 | [SourceEditor](../MarkdownIt/Editor/SourceEditor.swift)、[SourceHistory](../MarkdownIt/Editor/SourceHistory.swift) | 原生 TextKit 2 输入、工作文本、事务、选区与源码阅读位置 |
+| 文档与授权 | [MarkdownDocument](../MarkdownIt/Documents/MarkdownDocument.swift)、[LocalResources](../MarkdownIt/Documents/LocalResources.swift)、[RecentDocuments](../MarkdownIt/Documents/RecentDocuments.swift) | 原位置读写、编码、受限资源访问、最近记录和书签 |
+| 文档与对话呈现 | [WebSource](../MarkdownIt/WebSource/) | 解析、清理、排版、预览位置映射、富文本选段和对话状态 |
+| Agent 执行 | [AgentPrompt](../MarkdownIt/AI/AgentPrompt.swift)、[AgentContextBuilder](../MarkdownIt/AI/AgentContextBuilder.swift)、[AgentContextMemory](../MarkdownIt/AI/AgentContextMemory.swift)、[AgentContextSources](../MarkdownIt/AI/AgentContextSources.swift)、[AgentModelTransport](../MarkdownIt/AI/AgentModelTransport.swift)、[AgentDocumentTools](../MarkdownIt/AI/AgentDocumentTools.swift)、[AgentImages](../MarkdownIt/AI/AgentImages.swift) | 模式提示词、请求快照、上下文版本、生成、工具执行与恢复 |
+| 供应商适配 | [ModelClient](../MarkdownIt/AI/ModelClient.swift)、[ModelWireFormat](../MarkdownIt/AI/ModelWireFormat.swift)、[ModelCatalog](../MarkdownIt/AI/ModelCatalog.swift) | 协议编码、流解析、错误分类和模型目录缓存 |
 
 ## 关键设计取舍
 
@@ -55,7 +55,7 @@ flowchart LR
 | 原生容器与 Web 渲染分工 | 原生层复用文件选择、Keychain、系统菜单和输入能力；Web 层让正文与对话共用 Markdown、数学和图表能力。桥接只传递完成相应操作所需的数据。 |
 | 一个文档工作缓冲区 | `SourceHistory` 持有工作文本，原生编辑器呈现并提交输入，`MarkdownDocument` 接收修改以保存原文件。Web 只接收按版本串行同步的只读快照；模式切换、AI 入口和发送前等待最新投影，不从 DOM 读取源码。 |
 | 原位置打开与保存 | 保留原文件及相对目录关系。文件授权不等于父目录授权，引用资源通过明确授权的目录读取。 |
-| 完整、带版本的上下文 | 选段表达关注点，完整文档提供背景；按内容去重版本，避免旧引用与当前文本混淆。上下文不足时返回错误，当前不静默截断、摘要或丢弃历史。 |
+| 带版本、可按需读取的上下文 | 选段表达关注点，文档提供背景；按内容去重版本，避免旧引用与当前文本混淆。长对话整理为模型工作摘要，超长材料按 ID 读取，界面保留完整历史。 |
 | 原生、显式的模型协议 | API Key 不进入 Web。每次请求使用已选协议，不以失败请求探测另一协议；后续工具轮次沿用同一连接和协议。 |
 
 ## 状态与生命周期
@@ -81,15 +81,25 @@ flowchart LR
 
 对话输入由 Web 布局胶囊容器、引用和发送按钮，`NativeComposerHost` 按 textarea 的实际区域定位原生文本视图。文本区域在发送按钮前结束，避免透明的原生控件拦截 Web 按钮。等待与接收反馈由 Web 的活动请求状态驱动；正文增量直接进入排版，退场动画不延后内容，也不修改请求历史或草稿。
 
+对话输入的聚焦请求由原生宿主暂存，在收到可见布局或输入视图附着到窗口后处理，不以固定间隔轮询或超时丢弃。收起面板或释放宿主会取消待处理请求，避免迟到布局重新唤起输入。
+
+`ReaderAlert` 在原生提示框关闭完成后执行重试、放弃或打开设置，避免后续操作与上一层提示框的退场重叠。模型设置还等待 Web 面板完成隐藏及模态清理；重新打开面板会取消该次关闭确认，不以固定延时判断转场结束。
+
+对话的滚动跟随状态由 `agent.js` 持有。用户向上浏览时暂停，主动回到末尾后恢复；跟随开启时，内容、视口和滚动位置的变化都保持末尾可见，包括尺寸更新后迟到的滚动事件。布局变化本身不重新开启已暂停的跟随。
+
 Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合并后续文本更新并保留事务状态事件。保存、工具编辑与历史操作直接读取或提交原生状态，不等待 Web 投影，也不在渲染应答后回写旧文本。AI 编辑的成功以原生事务提交为准，Web 投影失败不将已发生的修改报告为未执行。
 
 跨模式定位以源码位置为语义锚点，将块内位置和代码行偏移映射为源码行位置，并记录内容在视口中的纵向位置。切换时等待目标排版、公式和图表就绪，映射位置后再淡入；未滚动的往返复用原锚点，图片或字体引起的重排在用户继续交互前保持该锚点。
 
-`reader.js` 统一拥有目录与 AI 的布局决策，以共享设计参数计算正文与辅助面板能否同时容纳。显式开关与宽度变化共用互斥规则；只记录用户主动操作的面板，保留隐藏组件的会话与导航状态。呈现方式通过同一组属性交给 CSS 与 `agent.js`，实际侧栏预留宽度经带文档 token 的呈现消息投递给原生悬浮控件，原生层不重复维护断点。宽度重排沿用语义阅读锚点；高度变化不重新选择左右布局。源码宽度变化由 `SourceEditor` 在修改原生 frame 前捕获位置、重排后恢复；Web 布局不向源码回写陈旧锚点。
+`reader.js` 统一拥有目录与 AI 的布局决策，以共享设计参数计算正文与辅助面板能否同时容纳。显式开关与宽度变化共用互斥规则；只记录用户主动操作的面板，保留隐藏组件的会话与导航状态。呈现方式通过同一组属性交给 CSS 与 `agent.js`，实际侧栏预留宽度和正文列起点经带文档 token 的呈现消息投递给原生悬浮控件，原生层不重复维护断点或目录宽度。宽度重排沿用语义阅读锚点；高度变化不重新选择左右布局。源码宽度变化由 `SourceEditor` 在修改原生 frame 前捕获位置、重排后恢复；Web 布局不向源码回写陈旧锚点。
 
-`ReaderViewport.swift` 集中管理原生视口。`ReaderContainer` 根据 UIKit 键盘布局指引的实际遮挡区域确定内容视口：仅覆盖容器整条底边的输入界面缩短正文，其他情况保持完整高度。`ReaderViewport` 将视口尺寸提交给 Web。SwiftUI 阅读画布延伸至底部；完整停靠键盘缩短内容视口，浮动键盘及实体键盘的局部输入浮条不触发整页底部留白。场景进入后台后，系统为快照生成的临时尺寸只影响外层容器，不触发正在阅读的 Web 文档重排；场景激活时按容器的最新尺寸布局。前台旋转与窗口调整正常更新视口，不重载文档或重建会话。
+`ReaderViewport.swift` 集中管理原生视口。`ReaderContainer` 将正文底边直接约束到 UIKit 的键盘布局指引，关闭对未停靠键盘的跟随，并在键盘收起时使用容器底边。停靠键盘缩短内容视口，浮动键盘及实体键盘的局部输入浮条不触发整页底部留白；窗口变化与键盘更新统一由 Auto Layout 处理，不另行计算键盘偏移。`ReaderViewport` 将视口尺寸提交给 Web，SwiftUI 阅读画布延伸至底部。场景进入后台后，系统为快照生成的临时尺寸只影响外层容器，不触发正在阅读的 Web 文档重排；场景激活时按容器的最新尺寸布局。前台旋转与窗口调整正常更新视口，不重载文档或重建会话。
 
-`ReaderFloatingControls` 在原生子控制器中承载两种模式共享的 SwiftUI 操作组，通过独立的 `UIKeyboardLayoutGuide` 跟随浮动输入界面。Auto Layout 只调整操作组的位置，透明定位视图将组外触控交还正文。子宿主通过 UIKit 继承系统特征，显式传递当前 SwiftUI 动画事务，不整体覆盖子宿主的环境。展开与收起继续使用同一组件和动效参数。固定的更多操作由 `ReaderMoreMenu` 使用 `UIButton` 与同步构建的 `UIMenu` 呈现；展示期间保留菜单对象，协调器单独更新动作回调，避免周围状态更新替换正在操作的菜单项。
+`ReaderFloatingControls` 在原生子控制器中承载两种模式共享的 SwiftUI 操作组，通过独立的 `UIKeyboardLayoutGuide` 跟随浮动输入界面。Auto Layout 只调整操作组的位置，透明定位视图将组外触控交还正文。保留系统已有的布局动画；系统输入浮条在没有动画上下文时更新约束，由定位视图补齐可中断的 UIKit 布局动画，不估算键盘高度或重建输入浮条。子宿主通过 UIKit 继承系统特征，显式传递当前 SwiftUI 动画事务和 Reduce Motion，不整体覆盖子宿主的环境。
+
+`ReaderScreen` 持有一份展开状态，不以窗口宽度或编辑焦点切换操作组形态。`ReaderToolsLayout` 保留各操作的布局槽位及末尾的展开按钮，以可动画的展开进度排列位置；同一模式的布局尺寸不随展开状态变化，末尾按钮保持固定，其他按钮沿各自路径进入或退出，不替换整组布局。展开动画绑定在承载按钮的子宿主内部，使 chevron 旋转、按钮位移和退场共用动画事务与动效参数；外层 UIKit 事务负责原生定位约束。隐藏操作退出辅助功能树，原生定位容器将收起时的触控区域限制在展开按钮内。
+
+`ReaderMoreMenu` 的图标与相邻操作统一由 SwiftUI 绘制，透明的原生 `UIButton` 仅负责菜单交互。`UIMenu` 同步构建并在展示期间保留；协调器单独更新动作回调，避免周围状态更新替换正在操作的菜单项。
 
 ## 文档访问与保存
 
@@ -120,7 +130,7 @@ Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合�
 
 1. AI 入口建立当前文档或实际选段的关注内容。用户发送时先提交原生输入，并请求原生层核对该服务的发送授权；允许后才提交对话轮次并取得当前完整文档。取消保留草稿与引用。
 2. Web 固定问题、引用、文档版本和对话历史，生成不可变 `AgentSnapshot`。原生核对文档身份后交给 `AgentContextBuilder`。
-3. 构建器按内容登记本次请求内的文档快照，统一放入最后一轮的 `background.documents`；每项 `id` 是该版本的标识，`content` 才是全文。每轮 `documentID` 标记发送时的版本，`reference.documentID` 标记选段所属版本；`background.currentDocumentID` 指定本次发送时的当前全文。版本表只存一份相同正文，旧选段仍可查回所属全文。
+3. 构建器按内容登记本次请求内的文档快照，统一放入最后一轮的 `background.documents`；每项 `id` 是该版本的标识，`content` 存放内联全文。超出工作预算时改为按 ID 读取。每轮 `documentID` 标记发送时的版本，`reference.documentID` 标记选段所属版本；`background.currentDocumentID` 指定本次发送时的当前版本。版本表只存一份相同正文，旧选段仍可查回所属全文。
 4. `AgentModelTransport` 使用快照与原生连接配置发起请求，流事件按文档 token 和请求 ID 回到对应回答。
 
 `request` 是用户指令，`reference` 和全文是材料。系统规则明确材料中的命令、角色声明和标签没有指令权限。文件名仅保留最后一级；源码坐标用于本地校验，不额外发送绝对路径、目录授权信息或访问凭据，选中图片直接附带画面，全局入口提供图片清单并允许模型按需读取。
@@ -131,9 +141,19 @@ Web 快照按 `documentToken` 和原生 revision 串行投递，等待期间合�
 
 `ModelDataConsent` 按规范化的服务地址保存授权摘要：折叠协议／主机大小写、默认端口、末尾斜杠和已知 API 后缀，保留不同路径、非默认端口及 HTTP／HTTPS 的区别。授权不绑定模型、API Key 或接口类型。确认结果同时校验原请求、文档 token 和服务地址；切换文档或 Web 进程终止时取消待确认请求。发送和重试在提交前共用授权入口，原生传输边界再次校验，不能通过直接投递快照绕过许可。
 
+### 长对话与超长材料
+
+`AgentContextMemory` 在原生 actor 中管理发给模型的工作上下文，与界面中的完整会话分离。短对话直接发送；接近工作预算时，先把全文和超长引用改为按 ID 读取，再将较早的完整交流整理为摘要，保留近期原始消息及本轮要求。摘要由当前配置的同一模型生成，不带编辑工具，不使用其他服务或供应商专有压缩接口。失败或取消不删除界面内容，也不提交未完成的摘要；已完成摘要按历史前缀校验后复用，旧消息或撤销状态变化会使其失效。
+
+工作预算以 UTF-8 字节、消息与工具开销、图片预留量保守估算，默认上限为 65,536 个估算单位。它是应用的工作集目标，不是精确 token 数，也不代表模型真实容量。模型目录若提供正整数 `context_length` 或 `context_window`，再按其容量的四分之三收紧预算，为生成留出空间；缺失时不根据模型名称猜测。实际服务报告上下文超限后，本轮正常报错，下次用户手动重试使用更小预算，不自动重发失败请求或切换模型。
+
+材料 ID 来自内容摘要，压缩前后保持一致。`background.documents` 中没有 `content` 的条目明确声明通过 `read_document` 读取；超长引用通过 `reference.contentID` 保留精确材料身份。工具只接受当前文件或本轮已登记材料的 ID，支持 UTF-8 字节偏移与文字搜索；返回实际范围、总字节数、是否全文及下一偏移，不把截段标成全文。当前文件的读取同步原生工作文本，历史版本保持不可变。总结全文必须实际覆盖全文；摘要不能充当原文、编辑授权或 revision。
+
+同一轮持续调用工具时，完整调用与结果按对保留；超过预算后仅把已完成的整对交流整理为工具摘要，保留执行日记和编辑防重记录。近期所选及已读图片随相关原始消息保留，较早图片仍可按原 ID 重新取得。文档关闭、替换或渲染进程重置时清空压缩状态；服务、模型、协议或凭据变化隔离摘要缓存。压缩过程使用既有等待和停止反馈，不新增界面上的对话轮数限制。
+
 ### 图片上下文
 
-预览中轻点普通图片，由 Web 捕获图片引用并通过文档 token 投递给 `ReaderImageMenu`。UIKit 的 `UIEditMenuInteraction` 呈现“在 AI 对话中引用…”，动作进入已有对话入口；菜单内不读取图片或发送模型请求。滚动、旋转、模式切换及文档交接关闭菜单；已捕获引用按菜单请求身份隔离。图片的长按和右键继续交由 WebKit，带链接图片保留原有跳转，不依赖私有菜单接口。
+预览中轻点普通图片，由 Web 捕获图片引用并通过文档 token 投递给 `ReaderImageMenu`。UIKit 的 `UIEditMenuInteraction` 由独立的透明、非交互宿主承载，避免在 WebKit 视图上重复注册编辑菜单交互。它呈现“在 AI 对话中引用…”，动作进入已有对话入口；菜单内不读取图片或发送模型请求。滚动、旋转、模式切换及文档交接关闭菜单；已捕获引用按菜单请求身份隔离。图片的长按和右键继续交由 WebKit，带链接图片保留原有跳转，不依赖私有菜单接口。
 
 同一 Markdown 解析与清理流程提取 Markdown、引用式语法和 HTML 图片，代码里的图片样式文本不纳入图片清单。每次引用捕获生成独立图片 ID，当前选段与本轮全文共享同一图片身份。`background.images` 关联图片 ID、文档版本、原引用和替代文本；`currentImageIDs` 与 `reference.imageIDs` 分别标记当前全文及选段的图片。
 
@@ -145,7 +165,7 @@ Responses 用户输入和工具结果均使用图片内容项。Chat 用户输�
 
 ### 编辑工具
 
-预览只提供阅读辅助。源码中的显式编辑请求可使用 `read_document` 和 `edit_document`，编辑权限仅覆盖当前文件；两种模式都可按需读取图片清单，但不提供任意路径、目录、网页或 Shell 工具。
+两种模式都可按需使用只读的 `read_document`。源码中的显式编辑请求还可使用 `edit_document`，编辑权限仅覆盖当前文件；两种模式都可按需读取图片清单，但不提供任意路径、目录、网页或 Shell 工具。
 
 `edit_document` 的一次批次按以下顺序执行：
 
@@ -190,7 +210,7 @@ Responses 请求设置 `store:false` 并发送所需历史，不依赖服务器�
 | `vendor/` 中标为 `target: native` 的字体与许可 | Xcode 直接复制到 App 包，`UIAppFonts` 注册首页字体 |
 | `Localizable.xcstrings`、`InfoPlist.xcstrings` | 原生翻译和系统权限文案；同一 UI String Catalog 生成 Web 翻译 |
 | [隐私政策](privacy.md) | 构建时复用固定 Markdown 解析器生成 `Resources/Privacy` 中英文结构化内容；SwiftUI 原生文本、列表、表格与滚动容器排版，运行时不使用 WebView 或 Markdown 引擎 |
-| `JustMarkdownTests/Fixtures/ReadingGuide/` | `Resources/Sample/`，仅 Debug 打包 |
+| `MarkdownItTests/Fixtures/ReadingGuide/` | `Resources/Sample/`，仅 Debug 打包 |
 
 `build_native_web.py` 校验 [vendor manifest](../vendor/assets.json) 中固定的依赖摘要，并生成资源；`--check` 比较维护源与生成结果。App 与构建过程不从 CDN 下载运行依赖。组件和图标登记由人工维护，不参与界面代码生成。
 
